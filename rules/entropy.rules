@@ -1,0 +1,2 @@
+alert ip any any -> any any (msg:"Entropy rule 0.5"; flow:established; entropy:0.5; sid:1234; rev:1;)
+alert ip any any -> any any (msg:"Entropy rule 0.9"; flow:established; entropy:0.9; sid:1235; rev:1;)

@@ -109,7 +109,7 @@ AC_INIT(configure.ac)
     AC_CHECK_HEADERS([limits.h netdb.h netinet/in.h poll.h sched.h signal.h])
     AC_CHECK_HEADERS([stdarg.h stdint.h stdio.h stdlib.h string.h sys/ioctl.h])
     AC_CHECK_HEADERS([syslog.h sys/prctl.h sys/socket.h sys/stat.h sys/syscall.h])
-    AC_CHECK_HEADERS([sys/time.h time.h unistd.h])
+    AC_CHECK_HEADERS([sys/time.h time.h unistd.h math.h])
     AC_CHECK_HEADERS([sys/ioctl.h linux/if_ether.h linux/if_packet.h linux/filter.h])
 
     AC_CHECK_HEADERS([sys/socket.h net/if.h sys/mman.h linux/if_arp.h], [], [],
@@ -127,6 +127,8 @@ AC_INIT(configure.ac)
                      #include <windows.h>
                      ]])
 
+	AC_CHECK_LIB([m], [log])
+
     # Checks for typedefs, structures, and compiler characteristics.
     AC_C_INLINE
     AC_TYPE_PID_T
@@ -141,7 +143,7 @@ AC_INIT(configure.ac)
     # Checks for library functions.
     AC_FUNC_MALLOC
     AC_FUNC_REALLOC
-    AC_CHECK_FUNCS([gettimeofday memset strcasecmp strchr strdup strerror strncasecmp strtol strtoul memchr])
+    AC_CHECK_FUNCS([gettimeofday memset strcasecmp strchr strdup strerror strncasecmp strtol strtoul memchr log])
 
     # Add large file support
     AC_SYS_LARGEFILE
