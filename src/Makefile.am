@@ -179,6 +179,7 @@ detect-window.c detect-window.h \
 detect-within.c detect-within.h \
 detect-entropy.c detect-entropy.h \
 detect-uniquebytes.c detect-uniquebytes.h \
+detect-payloadlenfield.c detect-payloadlenfield.h \
 flow-alert-sid.c flow-alert-sid.h \
 flow-bit.c flow-bit.h \
 flow.c flow.h \

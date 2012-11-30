@@ -147,6 +147,7 @@
 
 #include "detect-entropy.h"
 #include "detect-uniquebytes.h"
+#include "detect-payloadlenfield.h"
 
 
 #include "util-rule-vars.h"
@@ -4787,6 +4788,7 @@ void SigTableSetup(void) {
     DetectIPRepRegister();
     DetectEntropyRegister();
     DetectUniqueBytesRegister();
+    DetectPayloadLenFieldRegister();
 
     uint8_t i = 0;
     for (i = 0; i < DETECT_TBLSIZE; i++) {
