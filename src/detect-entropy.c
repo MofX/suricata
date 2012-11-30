@@ -76,7 +76,7 @@ int DetectEntropyMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
 
 	//printf("IPv4 id: %d, offset: %d, len: %d\n", p->ip4h->ip_id, p->ip4h->ip_off, p->payload_len);
 
-	if (!(p->cnc.flags & CNC_ENTROPY)) {
+	if (1 || !(p->cnc.flags & CNC_ENTROPY)) {
 		memset(ent, 0, 256);
 		for (i = 0; i < p->payload_len; ++i) {
 			ent[p->payload[i]]++;
@@ -91,11 +91,11 @@ int DetectEntropyMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
 		p->cnc.entropy = entropy;
 		p->cnc.flags |= CNC_ENTROPY;
 	} else {
-		//printf("Using cached entropy\n");
+		printf("Using cached entropy\n");
 		entropy = p->cnc.entropy;
 	}
 
-	//printf("Entropy: %f, Target: %f\n", entropy, ed->entropy);
+	printf("Entropy: %f, Target: %f\n", entropy, ed->entropy);
 
 	return entropy >= ed->entropy;
 }
