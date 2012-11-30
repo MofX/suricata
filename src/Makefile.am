@@ -31,6 +31,7 @@ app-layer-ssl.c app-layer-ssl.h \
 app-layer-tls-handshake.c app-layer-tls-handshake.h \
 conf.c conf.h \
 conf-yaml-loader.c conf-yaml-loader.h \
+cncdetection.h \
 counters.c counters.h \
 cuda-packet-batcher.c cuda-packet-batcher.h \
 data-queue.c data-queue.h \

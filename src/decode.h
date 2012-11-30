@@ -77,6 +77,8 @@ enum {
 
 #include "app-layer-protos.h"
 
+#include "cncdetection.h"
+
 #ifdef __SC_CUDA_SUPPORT__
 #define CUDA_MAX_PAYLOAD_SIZE 1500
 #endif
@@ -438,6 +440,8 @@ typedef struct Packet_
     PPPHdr *ppph;
     PPPOESessionHdr *pppoesh;
     PPPOEDiscoveryHdr *pppoedh;
+
+    CNCDetection cnc;
 
     GREHdr *greh;
 
