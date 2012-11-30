@@ -144,7 +144,10 @@
 #include "detect-app-layer-event.h"
 #include "detect-luajit.h"
 #include "detect-iprep.h"
+
 #include "detect-entropy.h"
+#include "detect-uniquebytes.h"
+
 
 #include "util-rule-vars.h"
 
@@ -4783,6 +4786,7 @@ void SigTableSetup(void) {
     DetectLuajitRegister();
     DetectIPRepRegister();
     DetectEntropyRegister();
+    DetectUniqueBytesRegister();
 
     uint8_t i = 0;
     for (i = 0; i < DETECT_TBLSIZE; i++) {

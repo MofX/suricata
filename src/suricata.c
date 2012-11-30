@@ -82,7 +82,6 @@
 #include "detect-engine-state.h"
 #include "detect-engine-tag.h"
 #include "detect-fast-pattern.h"
-#include "detect-entropy.h"
 
 #include "tm-queuehandlers.h"
 #include "tm-queues.h"
