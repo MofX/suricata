@@ -86,7 +86,7 @@ int DetectEntropyMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
 	}
 	entropy = -entropy / log(256);
 
-	printf("Entropy: %f, %f, Target: %f\n", entropy, entropye, ed->entropy);
+	printf("Entropy: %f, %f, Target: %f\n", entropy, ed->entropy);
 
 	return entropy >= ed->entropy;
 }
