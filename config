@@ -1,0 +1,1 @@
+./configure --enable-pcre-jit --with-libpcre-includes=/usr/local/include --with-libpcre-libraries=/usr/local/lib --enable-debug --enable-unittests --no-create --no-recursion

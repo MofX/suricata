@@ -1,0 +1,1 @@
+sudo src/suricata -l log -u -U $1

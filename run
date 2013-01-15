@@ -1,0 +1,2 @@
+sudo rm -f log/*
+sudo ./src/suricata -c suricata-my.yaml -i eth0
