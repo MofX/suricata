@@ -66,7 +66,7 @@ static int DetectEntropySetup (DetectEngineCtx * ctx, Signature * s, char * str)
 
 int DetectEntropyMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
                         Packet *p, Signature *s, SigMatch *m) {
-	char ent[256];
+	unsigned int ent[256];
 	int i;
 	float entropy = 0;
 	DetectEntropyData *ed = m->ctx;
@@ -76,8 +76,8 @@ int DetectEntropyMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
 
 	//printf("IPv4 id: %d, offset: %d, len: %d\n", p->ip4h->ip_id, p->ip4h->ip_off, p->payload_len);
 
-	if (1 || !(p->cnc.flags & CNC_ENTROPY)) {
-		memset(ent, 0, 256);
+	if (!(p->cnc.flags & CNC_ENTROPY)) {
+		memset(ent, 0, 256 * sizeof(unsigned int));
 		for (i = 0; i < p->payload_len; ++i) {
 			ent[p->payload[i]]++;
 		}
@@ -161,6 +161,7 @@ static int EntropyTest4() {
 		res = 0;
 		goto error;
 	}
+	printf("Test part two\n");
 
 	p->cnc.entropy = 0;
 	res = UTHPacketMatchSig(p, "alert tcp any any -> any any (msg:\"dummy\"; entropy:0.4; sid:1;)");

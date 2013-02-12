@@ -26,6 +26,7 @@
 
 #include "detect-engine-state.h"
 #include "tmqh-flow.h"
+#include "work/superflow-flowhandler.h"
 
 #define COPY_TIMESTAMP(src,dst) ((dst)->tv_sec = (src)->tv_sec, (dst)->tv_usec = (src)->tv_usec)
 
@@ -40,6 +41,7 @@
 #endif
 
 #define FLOW_INITIALIZE(f) do { \
+		SuperflowInitFlow(f); \
         (f)->sp = 0; \
         (f)->dp = 0; \
         SC_ATOMIC_INIT((f)->use_cnt); \
@@ -74,6 +76,7 @@
  *  managed by the queueing code. Same goes for fb (FlowBucket ptr) field.
  */
 #define FLOW_RECYCLE(f) do { \
+		SuperflowRecycleFlow(f); \
         (f)->sp = 0; \
         (f)->dp = 0; \
         SC_ATOMIC_RESET((f)->use_cnt); \
@@ -103,6 +106,7 @@
     } while(0)
 
 #define FLOW_DESTROY(f) do { \
+		SuperflowFreeFlow(f); \
         SC_ATOMIC_DESTROY((f)->use_cnt); \
         \
         FLOWLOCK_DESTROY((f)); \

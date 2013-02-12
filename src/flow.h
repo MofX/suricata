@@ -28,6 +28,7 @@
 #include "util-var.h"
 #include "util-atomic.h"
 #include "detect-tag.h"
+#include "work/superflow.h"
 
 #define FLOW_QUIET      TRUE
 #define FLOW_VERBOSE    FALSE
@@ -360,6 +361,9 @@ typedef struct Flow_
     struct Flow_ *lnext; /* list */
     struct Flow_ *lprev;
     struct timeval startts;
+
+    SuperflowState superflow_state;
+
 #ifdef DEBUG
     uint32_t todstpktcnt;
     uint32_t tosrcpktcnt;

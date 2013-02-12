@@ -579,8 +579,8 @@ flow-timeouts:
 
 stream:
   memcap: 32mb
-  checksum-validation: yes      # reject wrong csums
-  inline: auto                  # auto will use inline mode in IPS mode, yes or no set it statically
+  checksum-validation: no      # reject wrong csums
+  inline: yes                  # auto will use inline mode in IPS mode, yes or no set it statically
   reassembly:
     memcap: 64mb
     depth: 1mb                  # reassemble 1mb into a stream
@@ -720,7 +720,7 @@ default-rule-path: rules
 rule-files:
 # - decoder-events.rules # available in suricata sources under rules dir
 # - stream-events.rules  # available in suricata sources under rules dir
-# - http-events.rules    # available in suricata sources under rules dir
+ - http-events.rules    # available in suricata sources under rules dir
 # - smtp-events.rules    # available in suricata sources under rules dir
  - entropy.rules
 

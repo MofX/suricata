@@ -1,1 +1,6 @@
-sudo src/suricata -l log -u -U $1
+if [ $1 ]
+  then
+    sudo src/suricata -l log -u -U $1;
+  else
+    sudo src/suricata -l log -u --fatal-unittests;
+fi;    

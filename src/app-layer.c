@@ -37,6 +37,8 @@
 #include "util-profiling.h"
 #include "util-validate.h"
 
+#include "work/superflow-wrapper.h"
+
 //#define PRINT
 extern uint8_t engine_mode;
 
@@ -113,87 +115,10 @@ extern AlpProtoDetectCtx alp_proto_ctx;
  *  \retval 0 ok
  *  \retval -1 error
  */
-int AppLayerHandleTCPData(AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
+int AppLayerHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
         TcpSession *ssn, uint8_t *data, uint32_t data_len, uint8_t flags)
 {
-    SCEnter();
-
-    DEBUG_ASSERT_FLOW_LOCKED(f);
-
-    int r = 0;
-
-#if DEBUG
-    BUG_ON(f == NULL);
-    BUG_ON(ssn == NULL);
-#endif
-
-    SCLogDebug("data_len %u flags %02X", data_len, flags);
-    if (!(f->flags & FLOW_NO_APPLAYER_INSPECTION)) {
-        /* if we don't know the proto yet and we have received a stream
-         * initializer message, we run proto detection.
-         * We receive 2 stream init msgs (one for each direction) but we
-         * only run the proto detection once. */
-        if (f->alproto == ALPROTO_UNKNOWN && (flags & STREAM_GAP)) {
-            ssn->flags |= STREAMTCP_FLAG_APPPROTO_DETECTION_COMPLETED;
-            SCLogDebug("ALPROTO_UNKNOWN flow %p, due to GAP in stream start", f);
-            StreamTcpSetSessionNoReassemblyFlag(ssn, 0);
-        } else if (f->alproto == ALPROTO_UNKNOWN && (flags & STREAM_START)) {
-            SCLogDebug("Stream initializer (len %" PRIu32 ")", data_len);
-#ifdef PRINT
-            if (data_len > 0) {
-                printf("=> Init Stream Data (app layer) -- start %s%s\n",
-                        flags & STREAM_TOCLIENT ? "toclient" : "",
-                        flags & STREAM_TOSERVER ? "toserver" : "");
-                PrintRawDataFp(stdout, data, data_len);
-                printf("=> Init Stream Data -- end\n");
-            }
-#endif
-
-            PACKET_PROFILING_APP_PD_START(dp_ctx);
-            f->alproto = AppLayerDetectGetProto(&alp_proto_ctx, dp_ctx, f,
-                    data, data_len, flags, IPPROTO_TCP);
-            PACKET_PROFILING_APP_PD_END(dp_ctx);
-
-            if (f->alproto != ALPROTO_UNKNOWN) {
-                ssn->flags |= STREAMTCP_FLAG_APPPROTO_DETECTION_COMPLETED;
-
-                PACKET_PROFILING_APP_START(dp_ctx, f->alproto);
-                r = AppLayerParse(dp_ctx->alproto_local_storage[f->alproto], f, f->alproto, flags, data, data_len);
-                PACKET_PROFILING_APP_END(dp_ctx, f->alproto);
-            } else {
-                if ((f->flags & FLOW_TS_PM_PP_ALPROTO_DETECT_DONE) &&
-                    (f->flags & FLOW_TC_PM_PP_ALPROTO_DETECT_DONE)) {
-                    FlowSetSessionNoApplayerInspectionFlag(f);
-                    ssn->flags |= STREAMTCP_FLAG_APPPROTO_DETECTION_COMPLETED;
-                }
-            }
-        } else {
-            SCLogDebug("stream data (len %" PRIu32 " alproto "
-                    "%"PRIu16" (flow %p)", data_len, f->alproto, f);
-#ifdef PRINT
-            if (data_len > 0) {
-                printf("=> Stream Data (app layer) -- start %s%s\n",
-                        flags & STREAM_TOCLIENT ? "toclient" : "",
-                        flags & STREAM_TOSERVER ? "toserver" : "");
-                PrintRawDataFp(stdout, data, data_len);
-                printf("=> Stream Data -- end\n");
-            }
-#endif
-            /* if we don't have a data object here we are not getting it
-             * a start msg should have gotten us one */
-            if (f->alproto != ALPROTO_UNKNOWN) {
-                PACKET_PROFILING_APP_START(dp_ctx, f->alproto);
-                r = AppLayerParse(dp_ctx->alproto_local_storage[f->alproto], f, f->alproto, flags, data, data_len);
-                PACKET_PROFILING_APP_END(dp_ctx, f->alproto);
-            } else {
-                SCLogDebug(" smsg not start, but no l7 data? Weird");
-            }
-        }
-    } else {
-        SCLogDebug("FLOW_AL_NO_APPLAYER_INSPECTION is set");
-    }
-
-    SCReturnInt(r);
+	return SuperflowHandleTCPData(p, dp_ctx, f, ssn, data, data_len, flags);
 }
 
 /**

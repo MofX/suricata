@@ -192,6 +192,8 @@
 #include "util-proto-name.h"
 #include "util-spm-bm.h"
 
+#include "work/message.h"
+
 /*
  * we put this here, because we only use it here in main.
  */
@@ -1691,6 +1693,7 @@ int main(int argc, char **argv)
         DetectProtoTests();
         DetectPortTests();
         SCAtomicRegisterTests();
+        MessageRegisterTests();
         if (list_unittests) {
             UtListTests(regex_arg);
         }
