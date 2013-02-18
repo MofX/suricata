@@ -19,26 +19,38 @@
 #include "work/message.h"
 
 SuperflowMessage* MessageGetCurrent(SuperflowMessages *sms) {
-	if (sms->size == SUPERFLOW_MESSAGE_MAX_NESSAGES) {
+	if (sms->size == 0 || sms->size == SUPERFLOW_MESSAGE_MAX_MESSAGES + 1) {
 		return NULL;
 	} else {
-		return &(sms->msgs[sms->size]);
+		SuperflowMessage *cur = &sms->msgs[sms->size - 1];
+		cur->flags |= SUPERFLOW_MESSAGE_FLAG_INUSE;
+		return cur;
 	}
+}
 
+SuperflowMessage* MessageGetNext(SuperflowMessages *sms) {
+	if (sms->size == SUPERFLOW_MESSAGE_MAX_MESSAGES + 1) {
+		return NULL;
+	} else {
+		sms->size++;
+		return MessageGetCurrent(sms);
+	}
 }
 
 void MessageFinalize(SuperflowMessages *sms, SuperflowMessage *sm) {
 	// Calculate stuff
 	// Add to superflow
 	// Free memory?
-	++sms->size;
+	//++sms->size;
 }
 
 void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 	SuperflowState *sst = &p->flow->superflow_state;
 	SuperflowMessages *sms = &sst->messages;
 	SuperflowMessage *sm = MessageGetCurrent(sms);
-	if (!sm) return;
+	if (!sm) {
+		sm = MessageGetNext(sms);
+	}
 
 	struct timeval diff;
 	timersub(&p->ts, &sm->last_update, &diff);
@@ -50,7 +62,7 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 			|| (diff_ms > SUPERFLOW_TIMEOUT) || (flags & STREAM_EOF))) {
 		//printf("New message\n");
 		MessageFinalize(sms, sm);
-		sm = MessageGetCurrent(sms);
+		sm = MessageGetNext(sms);
 	}
 	if (!sm) {
 		sst->flags |= SUPERFLOW_FLAG_MESSAGE_OVERFLOW;
@@ -85,14 +97,15 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 
 int MessageTest01() {
 	FlowInitConfig(1);
-	Flow *f = FlowAlloc();
-	SuperflowMessages *msgs = &f->superflow_state.messages;
+	Flow f;
+	SuperflowMessages *msgs = &f.superflow_state.messages;
 	Packet p;
 
+	FLOW_INITIALIZE(&f);
 	char buffer[256];
 
 	p.ts.tv_usec = 0;
-	p.flow = f;
+	p.flow = &f;
 
 	MessageAdd(&p, "a", 1, STREAM_TOSERVER);
 	MessageAdd(&p, "b", 1, STREAM_TOSERVER);
@@ -142,7 +155,7 @@ int MessageTest01() {
 		goto error;
 	}
 
-	if (f->superflow_state.flags & SUPERFLOW_FLAG_MESSAGE_OVERFLOW) {
+	if (f.superflow_state.flags & SUPERFLOW_FLAG_MESSAGE_OVERFLOW) {
 		printf("Message overflow set!\n");
 		goto error;
 	}
@@ -152,21 +165,21 @@ int MessageTest01() {
 	goto end;
 error:
 	r = -1;
-	FlowFree(f);
 end:
 	return r;
 }
 
 int MessageTest02() {
 	FlowInitConfig(1);
-	Flow *f = FlowAlloc();
-	SuperflowMessages *msgs = &f->superflow_state.messages;
+	Flow f;
+	SuperflowMessages *msgs = &f.superflow_state.messages;
 	Packet p;
 
+	FLOW_INITIALIZE(&f);
 	char buffer[SUPERFLOW_MAX_LENGTH + 1];
 
 	p.ts.tv_usec = 0;
-	p.flow = f;
+	p.flow = &f;
 
 	MessageAdd(&p, buffer, SUPERFLOW_MAX_LENGTH, STREAM_TOSERVER);
 	MessageAdd(&p, buffer, SUPERFLOW_MAX_LENGTH + 1, STREAM_TOCLIENT);
@@ -181,7 +194,7 @@ int MessageTest02() {
 		goto error;
 	}
 
-	if (f->superflow_state.flags & SUPERFLOW_FLAG_MESSAGE_OVERFLOW) {
+	if (f.superflow_state.flags & SUPERFLOW_FLAG_MESSAGE_OVERFLOW) {
 		printf("Message overflow set!\n");
 		goto error;
 	}
@@ -190,27 +203,28 @@ int MessageTest02() {
 	goto end;
 error:
 	r = -1;
-	FlowFree(f);
 end:
 	return r;
 }
 
 int MessageTest03() {
 	FlowInitConfig(1);
-	Flow *f = FlowAlloc();
-	SuperflowMessages *msgs = &f->superflow_state.messages;
+	Flow f;
+	SuperflowMessages *msgs = &f.superflow_state.messages;
 	Packet p;
 
-	p.ts.tv_usec = 0;
-	p.flow = f;
+	FLOW_INITIALIZE(&f);
 
-	for (uint8_t i = 0; i < SUPERFLOW_MESSAGE_MAX_NESSAGES + 1; ++i) {
+	p.ts.tv_usec = 0;
+	p.flow = &f;
+
+	for (uint8_t i = 0; i < SUPERFLOW_MESSAGE_MAX_MESSAGES + 1; ++i) {
 		char buffer[2];
 		sprintf(buffer, "%u", i);
 		MessageAdd(&p, buffer, 1, i % 2 ? STREAM_TOSERVER : STREAM_TOCLIENT);
 	}
 
-	for (uint8_t i = 0; i < SUPERFLOW_MESSAGE_MAX_NESSAGES; ++i) {
+	for (uint8_t i = 0; i < SUPERFLOW_MESSAGE_MAX_MESSAGES; ++i) {
 		char buffer[2];
 		sprintf(buffer, "%u", i);
 
@@ -220,7 +234,7 @@ int MessageTest03() {
 		}
 	}
 
-	if (!(f->superflow_state.flags & SUPERFLOW_FLAG_MESSAGE_OVERFLOW)) {
+	if (!(f.superflow_state.flags & SUPERFLOW_FLAG_MESSAGE_OVERFLOW)) {
 		printf("Message overflow not set!\n");
 		goto error;
 	}
@@ -229,7 +243,6 @@ int MessageTest03() {
 	goto end;
 error:
 	r = -1;
-	FlowFree(f);
 end:
 	return r;
 }
