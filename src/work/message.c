@@ -19,7 +19,7 @@
 #include "work/message.h"
 
 SuperflowMessage* MessageGetCurrent(SuperflowMessages *sms) {
-	if (sms->size == SUPERFLOW_NUM_NESSAGES) {
+	if (sms->size == SUPERFLOW_MESSAGE_MAX_NESSAGES) {
 		return NULL;
 	} else {
 		return &(sms->msgs[sms->size]);
@@ -51,8 +51,12 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 		//printf("New message\n");
 		MessageFinalize(sms, sm);
 		sm = MessageGetCurrent(sms);
-		if (!sm) return;
 	}
+	if (!sm) {
+		sst->flags |= SUPERFLOW_FLAG_MESSAGE_OVERFLOW;
+		return;
+	}
+
 	if (!(sm->flags & dirflags)) {
 		sm->flags |= flags & dirflags;
 		sm->first_update = p->ts;
@@ -63,7 +67,7 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 
 	if (sm->capacity - sm->size < data_len) {
 		uint32_t size = sm->size + data_len;
-		printf("Reallocating buffer: %u\n", size);
+		//printf("Reallocating buffer: %u\n", size);
 		if (size > SUPERFLOW_MAX_LENGTH) {
 			size = SUPERFLOW_MAX_LENGTH;
 			data_len = size - sm->size;
@@ -138,6 +142,11 @@ int MessageTest01() {
 		goto error;
 	}
 
+	if (f->superflow_state.flags & SUPERFLOW_FLAG_MESSAGE_OVERFLOW) {
+		printf("Message overflow set!\n");
+		goto error;
+	}
+
 
 	int r = 0;
 	goto end;
@@ -172,6 +181,11 @@ int MessageTest02() {
 		goto error;
 	}
 
+	if (f->superflow_state.flags & SUPERFLOW_FLAG_MESSAGE_OVERFLOW) {
+		printf("Message overflow set!\n");
+		goto error;
+	}
+
 	int r = 0;
 	goto end;
 error:
@@ -190,13 +204,13 @@ int MessageTest03() {
 	p.ts.tv_usec = 0;
 	p.flow = f;
 
-	for (uint8_t i = 0; i < SUPERFLOW_NUM_NESSAGES + 1; ++i) {
+	for (uint8_t i = 0; i < SUPERFLOW_MESSAGE_MAX_NESSAGES + 1; ++i) {
 		char buffer[2];
 		sprintf(buffer, "%u", i);
 		MessageAdd(&p, buffer, 1, i % 2 ? STREAM_TOSERVER : STREAM_TOCLIENT);
 	}
 
-	for (uint8_t i = 0; i < SUPERFLOW_NUM_NESSAGES; ++i) {
+	for (uint8_t i = 0; i < SUPERFLOW_MESSAGE_MAX_NESSAGES; ++i) {
 		char buffer[2];
 		sprintf(buffer, "%u", i);
 
@@ -204,6 +218,11 @@ int MessageTest03() {
 			printf("Message %u has wrong size or buffer\n", i);
 			goto error;
 		}
+	}
+
+	if (!(f->superflow_state.flags & SUPERFLOW_FLAG_MESSAGE_OVERFLOW)) {
+		printf("Message overflow not set!\n");
+		goto error;
 	}
 
 	int r = 0;
@@ -214,7 +233,6 @@ error:
 end:
 	return r;
 }
-
 void MessageRegisterTests() {
 	UtRegisterTest("MessageTest1", MessageTest01, 0);
 	UtRegisterTest("MessageTest2", MessageTest02, 0);

@@ -325,8 +325,8 @@ util-vector.h \
 win32-misc.c win32-misc.h \
 win32-service.c win32-service.h \
 win32-syslog.h \
-work/superflow.c work/superflow.h work/superflow-wrapper.h work/superflow-flowhandler.h \
-work/message.c work/message.h
+work/superflow-applayer-wrapper.c work/superflow.h work/superflow-applayer-wrapper.h \
+work/message.c work/message.h work/superflow.c work/superflow.h
 
 EXTRA_DIST = util-mpm-b2g-cuda-kernel.cu ptxdump.py
 

@@ -14,7 +14,7 @@
 #include "util-validate.h"
 
 #include "work/superflow.h"
-#include "work/superflow-wrapper.h"
+#include "work/superflow-applayer-wrapper.h"
 #include "work/message.h"
 
 int SuperflowDispatchAppLayer(AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
@@ -68,28 +68,14 @@ int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
     f->superflow_state.tcpstream_flags = ssn->flags & filtered_tcpstream_flags;
     f->superflow_state.flow_flags = f->flags & filtered_flow_flags;
     f->flags &= ~filtered_flow_flags;
+
+    if ((f->superflow_state.flow_flags & FLOW_NO_APPLAYER_INSPECTION) && (sst->flags & SUPERFLOW_FLAG_MESSAGE_OVERFLOW)) {
+    	f->flags |= FLOW_NO_APPLAYER_INSPECTION;
+    }
+
     ssn->flags |= STREAMTCP_FLAG_APPPROTO_DETECTION_COMPLETED;
 
     SCReturnInt(0);
-}
-
-void SuperflowInitFlow(Flow* flow) {
-	memset(&flow->superflow_state, 0, sizeof(SuperflowState));
-	//printf("Init flow: %llx\n", flow);
-}
-
-void SuperflowFreeFlow(Flow* flow) {
-	//printf("Free flow: %llx\n", flow);
-	free(flow->superflow_state.buffer_to_client.buffer);
-	free(flow->superflow_state.buffer_to_server.buffer);
-	for (uint8_t i = 0; i < SUPERFLOW_NUM_NESSAGES; ++i) {
-		free(flow->superflow_state.messages.msgs[i].buffer);
-	}
-}
-
-void SuperflowRecycleFlow(Flow* flow) {
-	SuperflowFreeFlow(flow);
-	SuperflowInitFlow(flow);
 }
 
 //#define PRINT

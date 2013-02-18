@@ -37,7 +37,7 @@
 #include "util-profiling.h"
 #include "util-validate.h"
 
-#include "work/superflow-wrapper.h"
+#include "work/superflow-applayer-wrapper.h"
 
 //#define PRINT
 extern uint8_t engine_mode;
