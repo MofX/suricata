@@ -51,6 +51,10 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 	if (!sm) {
 		sm = MessageGetNext(sms);
 	}
+	if (!sm) {
+		sst->flags |= SUPERFLOW_FLAG_MESSAGE_OVERFLOW;
+		return;
+	}
 
 	struct timeval diff;
 	timersub(&p->ts, &sm->last_update, &diff);
@@ -79,15 +83,17 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 
 	if (sm->capacity - sm->size < data_len) {
 		uint32_t size = sm->size + data_len;
-		//printf("Reallocating buffer: %u\n", size);
 		if (size > SUPERFLOW_MAX_LENGTH) {
 			size = SUPERFLOW_MAX_LENGTH;
 			data_len = size - sm->size;
 			sm->flags |= SUPERFLOW_MESSAGE_FLAG_OVERLENGTH;
 		}
 
-		sm->buffer = realloc(sm->buffer, size);
-		sm->capacity = size;
+		if (size > sm->capacity) {
+			//printf("Reallocating message buffer from %u to %u\n", sm->capacity, size);
+			sm->buffer = realloc(sm->buffer, size);
+			sm->capacity = size;
+		}
 	}
 	if (!data_len) return;
 

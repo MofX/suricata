@@ -23,6 +23,20 @@ int SuperflowDispatchAppLayer(AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
 int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
         TcpSession *ssn, uint8_t *data, uint32_t data_len, uint8_t flags) {
 
+#ifdef PRINT
+    if (data_len > 0) {
+        printf("=> Init Stream Data (app layer) -- start %s%s\n",
+                flags & STREAM_TOCLIENT ? "toclient" : "",
+                flags & STREAM_TOSERVER ? "toserver" : "");
+        PrintRawDataFp(stdout, data, data_len);
+        printf("=> Init Stream Data -- end\n");
+    }
+#endif
+
+    //return SuperflowDispatchAppLayer(dp_ctx, f, ssn, data, data_len, flags);
+
+
+
 	static unsigned int filtered_flow_flags = FLOW_NO_APPLAYER_INSPECTION;
 	static unsigned int filtered_tcpstream_flags = STREAMTCP_FLAG_APPPROTO_DETECTION_COMPLETED;
     SCEnter();
@@ -36,7 +50,8 @@ int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
 			d = &sst->buffer_to_client;
 		}
 		if (data_len > d->capacity - d->size) {
-			uint32_t size = (d->capacity - d->size + data_len < 1024) ? 1024 : data_len;
+			uint32_t size = d->size + data_len;
+			//printf("Reallocating superflow buffer from %u to %u\n", d->capacity, size);
 			d->buffer = realloc(d->buffer, size);
 			d->capacity = size;
 		}
@@ -65,11 +80,11 @@ int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
     }
 
     // set flags
-    f->superflow_state.tcpstream_flags = ssn->flags & filtered_tcpstream_flags;
-    f->superflow_state.flow_flags = f->flags & filtered_flow_flags;
+    sst->tcpstream_flags = ssn->flags & filtered_tcpstream_flags;
+    sst->flow_flags = f->flags & filtered_flow_flags;
     f->flags &= ~filtered_flow_flags;
 
-    if ((f->superflow_state.flow_flags & FLOW_NO_APPLAYER_INSPECTION) && (sst->flags & SUPERFLOW_FLAG_MESSAGE_OVERFLOW)) {
+    if ((sst->flow_flags & FLOW_NO_APPLAYER_INSPECTION) && (sst->flags & SUPERFLOW_FLAG_MESSAGE_OVERFLOW)) {
     	f->flags |= FLOW_NO_APPLAYER_INSPECTION;
     }
 
@@ -153,7 +168,7 @@ int SuperflowDispatchAppLayer(AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
             }
         }
     } else {
-    	printf("!!!!!!!!!!!!!!!!!!!!!!!!\n");
+    	//printf("!!!!!!!!!!!!!!!!!!!!!!!!\n");
         SCLogDebug("FLOW_AL_NO_APPLAYER_INSPECTION is set");
     }
 
