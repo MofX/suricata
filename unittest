@@ -2,7 +2,12 @@ if [ $1 ]
   then
     if [ $1 = "gdb" ]
       then
-        LD_LIBRARY_PATH=libhtp/htp/.libs gdb --args src/.libs/suricata -l log -u -U $2;
+	if [$2]
+	  then
+            LD_LIBRARY_PATH=libhtp/htp/.libs gdb --args src/.libs/suricata -l log -u -U $2;
+          else
+            LD_LIBRARY_PATH=libhtp/htp/.libs gdb --args src/.libs/suricata -l log -u;
+        fi;           
       else
         sudo src/suricata -l log -u -U $1;
     fi;

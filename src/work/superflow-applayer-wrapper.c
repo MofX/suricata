@@ -42,7 +42,7 @@ int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
     SCEnter();
 
     SuperflowState *sst = &f->superflow_state;
-    SuperflowData *d;
+    FlowBuffer *d;
     if (data_len > 0) {
 		if (flags & STREAM_TOSERVER) {
 			d = &sst->buffer_to_server;

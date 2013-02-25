@@ -18,18 +18,18 @@
 #include "work/superflow.h"
 #include "work/message.h"
 
-SuperflowMessage* MessageGetCurrent(SuperflowMessages *sms) {
-	if (sms->size == 0 || sms->size == SUPERFLOW_MESSAGE_MAX_MESSAGES + 1) {
+FlowMessage* MessageGetCurrent(FlowMessages *sms) {
+	if (sms->size == 0 || sms->size == FLOW_MESSAGE_MAX_MESSAGES + 1) {
 		return NULL;
 	} else {
-		SuperflowMessage *cur = &sms->msgs[sms->size - 1];
+		FlowMessage *cur = &sms->msgs[sms->size - 1];
 		cur->flags |= SUPERFLOW_MESSAGE_FLAG_INUSE;
 		return cur;
 	}
 }
 
-SuperflowMessage* MessageGetNext(SuperflowMessages *sms) {
-	if (sms->size == SUPERFLOW_MESSAGE_MAX_MESSAGES + 1) {
+FlowMessage* MessageGetNext(FlowMessages *sms) {
+	if (sms->size == FLOW_MESSAGE_MAX_MESSAGES + 1) {
 		return NULL;
 	} else {
 		sms->size++;
@@ -37,7 +37,7 @@ SuperflowMessage* MessageGetNext(SuperflowMessages *sms) {
 	}
 }
 
-void MessageFinalize(SuperflowMessages *sms, SuperflowMessage *sm) {
+void MessageFinalize(FlowMessages *sms, FlowMessage *sm) {
 	// Calculate stuff
 	// Add to superflow
 	// Free memory?
@@ -46,8 +46,8 @@ void MessageFinalize(SuperflowMessages *sms, SuperflowMessage *sm) {
 
 void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 	SuperflowState *sst = &p->flow->superflow_state;
-	SuperflowMessages *sms = &sst->messages;
-	SuperflowMessage *sm = MessageGetCurrent(sms);
+	FlowMessages *sms = &sst->messages;
+	FlowMessage *sm = MessageGetCurrent(sms);
 	if (!sm) {
 		sm = MessageGetNext(sms);
 	}
@@ -104,7 +104,7 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 int MessageTest01() {
 	FlowInitConfig(1);
 	Flow f;
-	SuperflowMessages *msgs = &f.superflow_state.messages;
+	FlowMessages *msgs = &f.superflow_state.messages;
 	Packet p;
 
 	FLOW_INITIALIZE(&f);
@@ -178,7 +178,7 @@ end:
 int MessageTest02() {
 	FlowInitConfig(1);
 	Flow f;
-	SuperflowMessages *msgs = &f.superflow_state.messages;
+	FlowMessages *msgs = &f.superflow_state.messages;
 	Packet p;
 
 	FLOW_INITIALIZE(&f);
@@ -216,7 +216,7 @@ end:
 int MessageTest03() {
 	FlowInitConfig(1);
 	Flow f;
-	SuperflowMessages *msgs = &f.superflow_state.messages;
+	FlowMessages *msgs = &f.superflow_state.messages;
 	Packet p;
 
 	FLOW_INITIALIZE(&f);
@@ -224,14 +224,14 @@ int MessageTest03() {
 	p.ts.tv_usec = 0;
 	p.flow = &f;
 
-	for (uint8_t i = 0; i < SUPERFLOW_MESSAGE_MAX_MESSAGES + 1; ++i) {
-		char buffer[2];
+	for (uint8_t i = 0; i < FLOW_MESSAGE_MAX_MESSAGES + 1; ++i) {
+		char buffer[20];
 		sprintf(buffer, "%u", i);
 		MessageAdd(&p, buffer, 1, i % 2 ? STREAM_TOSERVER : STREAM_TOCLIENT);
 	}
 
-	for (uint8_t i = 0; i < SUPERFLOW_MESSAGE_MAX_MESSAGES; ++i) {
-		char buffer[2];
+	for (uint8_t i = 0; i < FLOW_MESSAGE_MAX_MESSAGES; ++i) {
+		char buffer[10];
 		sprintf(buffer, "%u", i);
 
 		if (msgs->msgs[i].size != 1 || strncmp(msgs->msgs[i].buffer, buffer, 1) != 0) {
@@ -250,6 +250,7 @@ int MessageTest03() {
 error:
 	r = -1;
 end:
+	FlowShutdown();
 	return r;
 }
 void MessageRegisterTests() {

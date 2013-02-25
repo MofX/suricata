@@ -61,6 +61,8 @@
 
 #include "app-layer-parser.h"
 
+#include "work/superflow.h"
+
 #define FLOW_DEFAULT_EMERGENCY_RECOVERY 30
 
 //#define FLOW_DEFAULT_HASHSIZE    262144
@@ -307,10 +309,13 @@ void FlowHandlePacket (ThreadVars *tv, Packet *p)
         DecodeSetNoPayloadInspectionFlag(p);
     }
 
+    SuperflowHandlePacket(p);
+
     FLOWLOCK_UNLOCK(f);
 
     /* set the flow in the packet */
     p->flags |= PKT_HAS_FLOW;
+
     return;
 }
 

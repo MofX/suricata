@@ -194,6 +194,7 @@
 
 #include "work/message.h"
 #include "work/superflow.h"
+#include "work/superflow-hash.h"
 
 /*
  * we put this here, because we only use it here in main.
@@ -1696,6 +1697,7 @@ int main(int argc, char **argv)
         SCAtomicRegisterTests();
         MessageRegisterTests();
         SuperflowRegisterTests();
+        SuperflowHashRegisterTests();
 
         if (list_unittests) {
             UtListTests(regex_arg);
@@ -1815,6 +1817,7 @@ int main(int argc, char **argv)
     if (run_mode != RUNMODE_UNIX_SOCKET) {
         FlowInitConfig(FLOW_VERBOSE);
     }
+    SuperflowInit(0);
 
     DetectEngineCtx *de_ctx = DetectEngineCtxInit();
     if (de_ctx == NULL) {
@@ -2084,6 +2087,7 @@ int main(int argc, char **argv)
         FlowShutdown();
         StreamTcpFreeConfig(STREAM_VERBOSE);
     }
+    SuperflowFree();
     HostShutdown();
 
     HTPFreeConfig();
