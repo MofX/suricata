@@ -20,6 +20,8 @@
 int SuperflowDispatchAppLayer(AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
         TcpSession *ssn, uint8_t *data, uint32_t data_len, uint8_t flags);
 
+//#define PRINT
+
 int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
         TcpSession *ssn, uint8_t *data, uint32_t data_len, uint8_t flags) {
 
@@ -30,6 +32,8 @@ int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
                 flags & STREAM_TOSERVER ? "toserver" : "");
         PrintRawDataFp(stdout, data, data_len);
         printf("=> Init Stream Data -- end\n");
+    } else {
+    	printf("=> Got stream Data with zero length\n");
     }
 #endif
 

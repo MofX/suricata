@@ -484,10 +484,188 @@ end:
 	return r;
 }
 
+TmEcode StreamTcp (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq);
+
+Flow* emmitTCPPacket(uint64_t i, char* data, uint32_t data_len, uint8_t tcp_flags, ThreadVars *tv, StreamTcpThread *stt, PacketQueue *pq) {
+	union SuperflowKey_ key;
+	key.key = i;
+
+	Packet p;
+	memset(&p, 0, sizeof(Packet));
+	IPV4Hdr ip4hdr;
+	TCPHdr tcphdr;
+	p.ip4h = &ip4hdr;
+	p.tcph = &tcphdr;
+
+	ip4hdr.ip4_hdrun1.ip4_un1.ip_src.s_addr = p.src.address.address_un_data32[0] = key.srvr;
+	ip4hdr.ip4_hdrun1.ip4_un1.ip_dst.s_addr = p.dst.address.address_un_data32[0] = key.clnt;
+
+	tcphdr.th_flags = tcp_flags;
+	tcphdr.th_dport = p.dp = (i * 25) % 65536;
+	tcphdr.th_sport = p.sp = (i * 12) % 65536;
+	p.payload = data;
+	p.payload_len = data_len;
+
+	FlowHandlePacket(NULL, &p);
+
+	Flow* flow = p.flow;
+
+	StreamTcp(tv, &p, stt, pq, pq);
+
+	//FLOW_DESTROY(p.flow);
+
+	return flow;
+}
+
+Packet * emitTCPPacket(char* data, uint32_t data_len, uint8_t flags, char* src, char* dst, uint16_t srcport, uint16_t dstport,
+						uint32_t * seq, uint32_t * ack, struct timeval ts, ThreadVars *tv,
+					    StreamTcpThread *stt, PacketQueue *pq) {
+    Packet *p = UTHBuildPacketReal(data, data_len, IPPROTO_TCP, src, dst, srcport, dstport);
+    p->ts = ts;
+    p->tcph->th_flags = flags;
+    p->tcph->th_seq = htonl(*seq);
+    if (flags & TH_ACK) {
+    	p->tcph->th_ack = htonl(*ack);
+    }
+    p->tcph->th_win = htons(5480);
+    FlowHandlePacket(NULL, p);
+    StreamTcp(tv, p, stt, pq, pq);
+
+    if (flags & TH_SYN) {
+    	++(*seq);
+    } else {
+    	*seq += data_len;
+    }
+
+    return p;
+}
+
+int SuperflowTest06() {
+	FlowInitConfig(1);
+	AlpProtoDetectThreadCtx dp_ctx;
+	AlpProtoFinalize2Thread(&dp_ctx);
+	SuperflowInit(1);
+	StreamTcpInitConfig(1);
+
+	uint64_t i = 0;
+
+    ThreadVars tv;
+    StreamTcpThread stt;
+    PacketQueue pq;
+    TcpReassemblyThreadCtx ra_ctx;
+    StreamMsgQueue stream_q;
+    memset(&pq,0,sizeof(PacketQueue));
+    memset(&stt, 0, sizeof (StreamTcpThread));
+    memset(&ra_ctx, 0, sizeof(TcpReassemblyThreadCtx));
+    memset(&stream_q, 0, sizeof(StreamMsgQueue));
+
+    ra_ctx.stream_q = &stream_q;
+    stt.ra_ctx = &ra_ctx;
+
+    uint32_t seq_to_server = 100;
+    uint32_t seq_to_client = 300;
+
+    Flow *f = NULL;
+    TcpSession *ssn = NULL;
+    Packet *p = NULL;
+    struct timeval ts;
+    ts.tv_sec = 0;
+    ts.tv_usec = 0;
+
+    p = emitTCPPacket("", 0, TH_SYN, "45.12.45.78", "54.54.65.85", 54854, 90, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    f = p->flow;
+    FlowIncrUsecnt(f);
+    ssn = (TcpSession *)f->protoctx;
+    UTHFreePacket(p);
+
+    if (((TcpSession *)f->protoctx)->state != TCP_SYN_SENT) {
+    	printf("Connection not in state TCP_SYN_SENT\n");
+    	goto error;
+    }
+
+    p = emitTCPPacket("", 0, TH_SYN | TH_ACK, "54.54.65.85", "45.12.45.78", 90, 54854, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn->state != TCP_SYN_RECV) {
+		printf("Connection not in state TCP_SYN_RECV\n");
+		goto error;
+	}
+
+    p = emitTCPPacket("", 0, TH_ACK, "45.12.45.78", "54.54.65.85", 54854, 90, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn->state != TCP_ESTABLISHED) {
+    	printf("Connection not in state TCP_ESTABLISHED\n");
+    	goto error;
+    }
+
+    p = emitTCPPacket("test", 5, TH_ACK, "45.12.45.78", "54.54.65.85", 54854, 90, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    p = emitTCPPacket("", 0, TH_ACK, "54.54.65.85", "45.12.45.78", 90, 54854, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (f->superflow_state.messages.size != 1) {
+    	printf("Message size is not one\n");
+    	goto error;
+    }
+
+    if (strcmp(f->superflow_state.messages.msgs[0].buffer, "test") != 0) {
+    	printf("Buffer doesn't contain \"test\"\n");
+    	goto error;
+    }
+
+    ts.tv_usec = (SUPERFLOW_TIMEOUT + 1) * 1000;
+
+    p = emitTCPPacket("test2", 6, TH_ACK, "45.12.45.78", "54.54.65.85", 54854, 90, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    p = emitTCPPacket("", 0, TH_ACK, "54.54.65.85", "45.12.45.78", 90, 54854, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (f->superflow_state.messages.size != 2) {
+    	printf("Message size is not two\n");
+    	goto error;
+    }
+
+    if (strcmp(f->superflow_state.messages.msgs[1].buffer, "test2") != 0) {
+		printf("Buffer doesn't contain \"test2\"\n");
+		goto error;
+	}
+
+    p = emitTCPPacket("test345", 7, TH_ACK, "45.12.45.78", "54.54.65.85", 54854, 90, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    p = emitTCPPacket("", 0, TH_ACK, "54.54.65.85", "45.12.45.78", 90, 54854, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (f->superflow_state.messages.size != 2) {
+    	printf("Message size is not two\n");
+    	goto error;
+    }
+
+    if (strncmp(f->superflow_state.messages.msgs[1].buffer, "test2\0test345\0", 13) != 0) {
+		printf("Buffer doesn't contain \"test2\\0test345\"\n");
+		goto error;
+	}
+
+	int r = 0;
+	goto end;
+error:
+	r = -1;
+end:
+	FlowShutdown();
+	SuperflowFree();
+	AlpProtoDeFinalize2Thread(&dp_ctx);
+	StreamTcpFreeConfig(TRUE);
+	return r;
+}
+
 void SuperflowRegisterTests() {
 	UtRegisterTest("SuperflowTest1", SuperflowTest01, 0);
 	UtRegisterTest("SuperflowTest2", SuperflowTest02, 0);
 	UtRegisterTest("SuperflowTest3", SuperflowTest03, 0);
 	UtRegisterTest("SuperflowTest4", SuperflowTest04, 0);
 	UtRegisterTest("SuperflowTest5", SuperflowTest05, 0);
+	UtRegisterTest("SuperflowTest6", SuperflowTest06, 0);
 }
