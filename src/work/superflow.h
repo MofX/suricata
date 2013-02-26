@@ -4,8 +4,8 @@
 #include "superflow-hash.h"
 
 #define FLOW_MESSAGE_MAX_MESSAGES 10
-#define SUPERFLOW_TIMEOUT 200
-#define SUPERFLOW_MAX_LENGTH 2048
+#define SUPERFLOW_MESSAGE_TIMEOUT 200
+#define SUPERFLOW_MESSAGE_MAX_LENGTH 2048
 
 #define SUPERFLOW_MESSAGE_COUNT 8
 #define SUPERFLOW_MEMORY 1024 * 1024 * 1
@@ -21,9 +21,10 @@
 #define SUPERFLOW_MEMORY_REAL SUPERFLOW_COUNT * sizeof(Superflow)
 
 typedef struct SuperflowMessage_ {
-	int time;
-	unsigned char length[2];
-	unsigned char entropy[2];
+	uint32_t time;
+	uint16_t length;
+	uint8_t flags;
+	uint8_t entropy;
 } SuperflowMessage;
 
 union SuperflowKey_ {

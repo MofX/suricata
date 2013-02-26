@@ -167,11 +167,12 @@ int SuperflowTest01() {
 	AlpProtoDetectThreadCtx dp_ctx;
 	TcpSession ssn;
 
+	SuperflowInit(1);
+	AlpProtoFinalize2Thread(&dp_ctx);
+
 	FLOW_INITIALIZE(&f);
 
 	p.flow = &f;
-
-	SuperflowInit(1);
 
 	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, "a", 1, STREAM_START | STREAM_TOSERVER);
 
@@ -185,7 +186,9 @@ int SuperflowTest01() {
 error:
 	r = -1;
 end:
+	FlowShutdown();
 	SuperflowFree();
+	AlpProtoDeFinalize2Thread(&dp_ctx);
 	return r;
 }
 
@@ -486,37 +489,6 @@ end:
 
 TmEcode StreamTcp (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq);
 
-Flow* emmitTCPPacket(uint64_t i, char* data, uint32_t data_len, uint8_t tcp_flags, ThreadVars *tv, StreamTcpThread *stt, PacketQueue *pq) {
-	union SuperflowKey_ key;
-	key.key = i;
-
-	Packet p;
-	memset(&p, 0, sizeof(Packet));
-	IPV4Hdr ip4hdr;
-	TCPHdr tcphdr;
-	p.ip4h = &ip4hdr;
-	p.tcph = &tcphdr;
-
-	ip4hdr.ip4_hdrun1.ip4_un1.ip_src.s_addr = p.src.address.address_un_data32[0] = key.srvr;
-	ip4hdr.ip4_hdrun1.ip4_un1.ip_dst.s_addr = p.dst.address.address_un_data32[0] = key.clnt;
-
-	tcphdr.th_flags = tcp_flags;
-	tcphdr.th_dport = p.dp = (i * 25) % 65536;
-	tcphdr.th_sport = p.sp = (i * 12) % 65536;
-	p.payload = data;
-	p.payload_len = data_len;
-
-	FlowHandlePacket(NULL, &p);
-
-	Flow* flow = p.flow;
-
-	StreamTcp(tv, &p, stt, pq, pq);
-
-	//FLOW_DESTROY(p.flow);
-
-	return flow;
-}
-
 Packet * emitTCPPacket(char* data, uint32_t data_len, uint8_t flags, char* src, char* dst, uint16_t srcport, uint16_t dstport,
 						uint32_t * seq, uint32_t * ack, struct timeval ts, ThreadVars *tv,
 					    StreamTcpThread *stt, PacketQueue *pq) {
@@ -615,7 +587,7 @@ int SuperflowTest06() {
     	goto error;
     }
 
-    ts.tv_usec = (SUPERFLOW_TIMEOUT + 1) * 1000;
+    ts.tv_usec = (SUPERFLOW_MESSAGE_TIMEOUT + 1) * 1000;
 
     p = emitTCPPacket("test2", 6, TH_ACK, "45.12.45.78", "54.54.65.85", 54854, 90, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
     UTHFreePacket(p);

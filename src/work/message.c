@@ -41,7 +41,7 @@ void MessageFinalize(FlowMessages *sms, FlowMessage *sm) {
 	// Calculate stuff
 	// Add to superflow
 	// Free memory?
-	//++sms->size;
+
 }
 
 void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
@@ -63,7 +63,7 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 	const uint8_t dirflags = SUPERFLOW_MESSAGE_FLAG_TOCLIENT | SUPERFLOW_MESSAGE_FLAG_TOSERVER;
 	//printf("dirflags: %u, diff_ms: %u\n", (sm->flags & dirflags), diff_ms);
 	if ((sm->flags & dirflags) && (((sm->flags & dirflags) != (flags & dirflags))
-			|| (diff_ms > SUPERFLOW_TIMEOUT) || (flags & STREAM_EOF))) {
+			|| (diff_ms > SUPERFLOW_MESSAGE_TIMEOUT) || (flags & STREAM_EOF))) {
 		//printf("New message\n");
 		MessageFinalize(sms, sm);
 		sm = MessageGetNext(sms);
@@ -83,8 +83,8 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 
 	if (sm->capacity - sm->size < data_len) {
 		uint32_t size = sm->size + data_len;
-		if (size > SUPERFLOW_MAX_LENGTH) {
-			size = SUPERFLOW_MAX_LENGTH;
+		if (size > SUPERFLOW_MESSAGE_MAX_LENGTH) {
+			size = SUPERFLOW_MESSAGE_MAX_LENGTH;
 			data_len = size - sm->size;
 			sm->flags |= SUPERFLOW_MESSAGE_FLAG_OVERLENGTH;
 		}
@@ -106,11 +106,11 @@ int MessageTest01() {
 	Flow f;
 	FlowMessages *msgs = &f.superflow_state.messages;
 	Packet p;
+	memset(&p, 0, sizeof(p));
 
 	FLOW_INITIALIZE(&f);
 	char buffer[256];
 
-	p.ts.tv_usec = 0;
 	p.flow = &f;
 
 	MessageAdd(&p, "a", 1, STREAM_TOSERVER);
@@ -118,7 +118,7 @@ int MessageTest01() {
 	MessageAdd(&p, "c", 1, STREAM_TOSERVER);
 	MessageAdd(&p, "defghi", 6, STREAM_TOSERVER);
 
-	p.ts.tv_usec = 1000 * (SUPERFLOW_TIMEOUT + 5);
+	p.ts.tv_usec = 1000 * (SUPERFLOW_MESSAGE_TIMEOUT + 5);
 	MessageAdd(&p, "jkl", 3, STREAM_TOSERVER);
 	MessageAdd(&p, "a", 1, STREAM_TOSERVER);
 
@@ -180,22 +180,22 @@ int MessageTest02() {
 	Flow f;
 	FlowMessages *msgs = &f.superflow_state.messages;
 	Packet p;
+	memset(&p, 0, sizeof(p));
 
 	FLOW_INITIALIZE(&f);
-	char buffer[SUPERFLOW_MAX_LENGTH + 1];
+	char buffer[SUPERFLOW_MESSAGE_MAX_LENGTH + 1];
 
-	p.ts.tv_usec = 0;
 	p.flow = &f;
 
-	MessageAdd(&p, buffer, SUPERFLOW_MAX_LENGTH, STREAM_TOSERVER);
-	MessageAdd(&p, buffer, SUPERFLOW_MAX_LENGTH + 1, STREAM_TOCLIENT);
+	MessageAdd(&p, buffer, SUPERFLOW_MESSAGE_MAX_LENGTH, STREAM_TOSERVER);
+	MessageAdd(&p, buffer, SUPERFLOW_MESSAGE_MAX_LENGTH + 1, STREAM_TOCLIENT);
 
-	if (msgs->msgs[0].size != SUPERFLOW_MAX_LENGTH || (msgs->msgs[0].flags & SUPERFLOW_MESSAGE_FLAG_OVERLENGTH)) {
+	if (msgs->msgs[0].size != SUPERFLOW_MESSAGE_MAX_LENGTH || (msgs->msgs[0].flags & SUPERFLOW_MESSAGE_FLAG_OVERLENGTH)) {
 		printf("Message one has wrong length or overlength flag set\n");
 		goto error;
 	}
 
-	if (msgs->msgs[1].size != SUPERFLOW_MAX_LENGTH || !(msgs->msgs[1].flags & SUPERFLOW_MESSAGE_FLAG_OVERLENGTH)) {
+	if (msgs->msgs[1].size != SUPERFLOW_MESSAGE_MAX_LENGTH || !(msgs->msgs[1].flags & SUPERFLOW_MESSAGE_FLAG_OVERLENGTH)) {
 		printf("Message two has wrong length or overlength flag not set\n");
 		goto error;
 	}
@@ -218,10 +218,10 @@ int MessageTest03() {
 	Flow f;
 	FlowMessages *msgs = &f.superflow_state.messages;
 	Packet p;
+	memset(&p, 0, sizeof(p));
 
 	FLOW_INITIALIZE(&f);
 
-	p.ts.tv_usec = 0;
 	p.flow = &f;
 
 	for (uint8_t i = 0; i < FLOW_MESSAGE_MAX_MESSAGES + 1; ++i) {
@@ -250,11 +250,56 @@ int MessageTest03() {
 error:
 	r = -1;
 end:
+	FLOW_DESTROY(&f);
 	FlowShutdown();
 	return r;
 }
+
+int MessageTest04() {
+	uint32_t x[1024];
+	FlowInitConfig(1);
+	Packet p;
+	Flow f;
+	FlowMessages *msgs = &f.superflow_state.messages;
+	memset(&p, 0, sizeof(Packet));
+	memset(&f, 0, sizeof(Flow));
+	FLOW_INITIALIZE(&f);
+
+	p.flow = &f;
+
+	MessageAdd(&p, "1", 1, STREAM_TOSERVER);
+
+	p.ts.tv_usec += 1000 * (SUPERFLOW_MESSAGE_TIMEOUT - 1);
+
+	MessageAdd(&p, "2", 1, STREAM_TOSERVER);
+
+	p.ts.tv_usec += 1000 * (SUPERFLOW_MESSAGE_TIMEOUT - 1);
+
+	MessageAdd(&p, "3", 1, STREAM_TOSERVER);
+
+	p.ts.tv_usec += 1000 * (SUPERFLOW_MESSAGE_TIMEOUT);
+
+	MessageAdd(&p, "4", 1, STREAM_TOSERVER);
+
+	if (strncmp(f.superflow_state.messages.msgs[0].buffer, "1234", 4) != 0) {
+		printf("Buffer is not \"1234\"\n");
+		goto error;
+	}
+
+	int r = 0;
+	goto end;
+error:
+	r = -1;
+end:
+	r = 0;
+	FLOW_DESTROY(&f);
+	FlowShutdown();
+	return r;
+}
+
 void MessageRegisterTests() {
 	UtRegisterTest("MessageTest1", MessageTest01, 0);
 	UtRegisterTest("MessageTest2", MessageTest02, 0);
 	UtRegisterTest("MessageTest3", MessageTest03, 0);
+	UtRegisterTest("MessageTest4", MessageTest04, 0);
 }
