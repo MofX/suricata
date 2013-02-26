@@ -14,6 +14,7 @@
 #define SUPERFLOW_MESSAGE_FLAG_INUSE			1 << 1
 #define SUPERFLOW_MESSAGE_FLAG_TOSERVER 		1 << 2
 #define SUPERFLOW_MESSAGE_FLAG_TOCLIENT			1 << 3
+#define SUPERFLOW_MESSAGE_FLAG_FINISHED			1 << 4
 
 #define SUPERFLOW_FLAG_MESSAGE_OVERFLOW			0x01
 
@@ -48,16 +49,17 @@ typedef struct Superflow_ {
 
 typedef struct FlowBuffer_ {
 	uint8_t		*buffer;
-	uint32_t 	capacity;
-	uint32_t 	size;
-	uint32_t 	posRead;
+	uint16_t 	capacity;
+	uint16_t 	size;
+	uint16_t 	posRead;
 } FlowBuffer;
 
 typedef struct FlowMessage_ {
 	uint8_t		*buffer;
 	uint32_t	capacity;
-	uint32_t	size;
+	uint16_t	size;
 	uint8_t		flags;
+	SuperflowMessage *sflow_message;
 	struct timeval	last_update;
 	struct timeval	first_update;
 } FlowMessage;
@@ -68,9 +70,9 @@ typedef struct FlowMessages_ {
 } FlowMessages;
 
 typedef struct SuperflowState_ {
-	uint32_t	flags;
+	uint8_t	flags;
+	uint16_t 	tcpstream_flags;
 	uint32_t 	flow_flags;
-	uint32_t 	tcpstream_flags;
 	FlowBuffer buffer_to_client;
 	FlowBuffer buffer_to_server;
 	FlowMessages messages;
@@ -94,5 +96,7 @@ void SuperflowFreeFlow(struct Flow_* flow);
 void SuperflowRecycleFlow(struct Flow_* flow);
 
 void SuperflowRegisterTests();
+
+SuperflowMessage * SuperflowGetNextMessage(SuperflowState * sfs);
 
 #endif //__SUPERFLOW_H__

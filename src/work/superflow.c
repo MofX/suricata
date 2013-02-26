@@ -118,7 +118,7 @@ void SuperflowFree() {
 
 void SuperflowInitFlow(Flow* flow) {
 	memset(&flow->superflow_state, 0, sizeof(SuperflowState));
-	//printf("Init flow: %llx\n", flow);
+	//printf("Init flow: %llx, %u\n", flow, flow->superflow_state.messages.msgs[0].capacity);
 }
 
 void SuperflowFreeFlow(Flow* flow) {
@@ -157,6 +157,18 @@ Superflow* SuperflowFromHash() {
 	}
 
 	return sflow;
+}
+
+
+SuperflowMessage * SuperflowGetNextMessage(SuperflowState * sfs) {
+	Superflow * sflow = sfs->superflow;
+	if (!sflow) return NULL;
+
+	if (sflow->messageCount == SUPERFLOW_MESSAGE_COUNT) {
+		return NULL;
+	} else {
+		return &sflow->msgs[sflow->messageCount++];
+	}
 }
 
 int SuperflowTest01() {
@@ -200,6 +212,8 @@ int SuperflowTest02() {
 	AlpProtoDetectThreadCtx dp_ctx;
 	TcpSession ssn;
 
+	SuperflowInit(1);
+	AlpProtoFinalize2Thread(&dp_ctx);
 	FLOW_INITIALIZE(&f);
 
 	uint8_t *buffer_to_server = "GET / HTTP/1.0\nContent-length: -1\n\n";
@@ -210,9 +224,6 @@ int SuperflowTest02() {
 	p.dst.address.address_un_data32[0] = 0x87654321;
 	p.flow = &f;
 	f.protoctx = &ssn;
-
-	SuperflowInit(1);
-	AlpProtoFinalize2Thread(&dp_ctx);
 
 	for (uint32_t i = 0; i < FLOW_MESSAGE_MAX_MESSAGES; ++i) {
 		uint8_t buffer[256];

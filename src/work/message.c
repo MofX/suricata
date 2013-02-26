@@ -1,5 +1,7 @@
 #include "suricata-common.h"
 
+#include <math.h>
+
 #include "app-layer.h"
 #include "app-layer-detect-proto.h"
 #include "stream-tcp-reassemble.h"
@@ -28,20 +30,51 @@ FlowMessage* MessageGetCurrent(FlowMessages *sms) {
 	}
 }
 
-FlowMessage* MessageGetNext(FlowMessages *sms) {
+FlowMessage* MessageGetNext(SuperflowState *sst) {
+	FlowMessages *sms = &sst->messages;
 	if (sms->size == FLOW_MESSAGE_MAX_MESSAGES + 1) {
 		return NULL;
 	} else {
 		sms->size++;
-		return MessageGetCurrent(sms);
+		FlowMessage *sm = MessageGetCurrent(sms);
+		if (sm) {
+			sm->sflow_message = SuperflowGetNextMessage(sst);
+		}
+		return sm;
 	}
 }
 
 void MessageFinalize(FlowMessages *sms, FlowMessage *sm) {
-	// Calculate stuff
-	// Add to superflow
-	// Free memory?
+	if (sm->sflow_message) {
+		float entropy = 0;
+		uint32_t entropy_counter[256];
 
+		memset(entropy_counter, 0, 256 * sizeof(uint32_t));
+		for (uint32_t i = 0; i < sm->size; ++i) {
+			entropy_counter[sm->buffer[i]]++;
+		}
+
+		for (uint32_t i = 0; i < 256; ++i) {
+			if (entropy_counter[i] == 0) continue;
+			float f = ((float)entropy_counter[i]) / sm->size;
+			entropy += f * log(f);
+		}
+		entropy = -entropy / log(256);
+
+
+		// Add to superflow
+
+		sm->sflow_message->entropy = entropy * 200;
+		sm->sflow_message->length = sm->size;
+		sm->sflow_message->time = sm->first_update.tv_sec * 1000 + sm->first_update.tv_usec / 1000;
+		sm->sflow_message->flags = sm->flags;
+	}
+
+	sm->flags |= SUPERFLOW_MESSAGE_FLAG_FINISHED;
+	/*free(sm->buffer);
+	sm->buffer = NULL;
+	sm->capacity = 0;
+	sm->size = 0;*/
 }
 
 void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
@@ -49,7 +82,7 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 	FlowMessages *sms = &sst->messages;
 	FlowMessage *sm = MessageGetCurrent(sms);
 	if (!sm) {
-		sm = MessageGetNext(sms);
+		sm = MessageGetNext(sst);
 	}
 	if (!sm) {
 		sst->flags |= SUPERFLOW_FLAG_MESSAGE_OVERFLOW;
@@ -66,7 +99,7 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 			|| (diff_ms > SUPERFLOW_MESSAGE_TIMEOUT) || (flags & STREAM_EOF))) {
 		//printf("New message\n");
 		MessageFinalize(sms, sm);
-		sm = MessageGetNext(sms);
+		sm = MessageGetNext(sst);
 	}
 	if (!sm) {
 		sst->flags |= SUPERFLOW_FLAG_MESSAGE_OVERFLOW;

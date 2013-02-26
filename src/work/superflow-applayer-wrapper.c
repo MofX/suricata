@@ -41,8 +41,8 @@ int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
 
 
 
-	static unsigned int filtered_flow_flags = FLOW_NO_APPLAYER_INSPECTION;
-	static unsigned int filtered_tcpstream_flags = STREAMTCP_FLAG_APPPROTO_DETECTION_COMPLETED;
+	static uint32_t filtered_flow_flags = FLOW_NO_APPLAYER_INSPECTION;
+	static uint32_t filtered_tcpstream_flags = STREAMTCP_FLAG_APPPROTO_DETECTION_COMPLETED;
     SCEnter();
 
     SuperflowState *sst = &f->superflow_state;
