@@ -14,7 +14,7 @@
 #define SUPERFLOW_MESSAGE_FLAG_INUSE			1 << 1
 #define SUPERFLOW_MESSAGE_FLAG_TOSERVER 		1 << 2
 #define SUPERFLOW_MESSAGE_FLAG_TOCLIENT			1 << 3
-#define SUPERFLOW_MESSAGE_FLAG_FINISHED			1 << 4
+#define SUPERFLOW_MESSAGE_FLAG_FINALIZED		1 << 4
 
 #define SUPERFLOW_FLAG_MESSAGE_OVERFLOW			0x01
 
@@ -94,6 +94,7 @@ void SuperflowHandlePacket(struct Packet_* p);
 void SuperflowInitFlow(struct Flow_* flow);
 void SuperflowFreeFlow(struct Flow_* flow);
 void SuperflowRecycleFlow(struct Flow_* flow);
+float SuperflowGetEntropy(struct SuperflowMessage_ *sfm);
 
 void SuperflowRegisterTests();
 

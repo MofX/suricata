@@ -33,7 +33,7 @@ int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
         PrintRawDataFp(stdout, data, data_len);
         printf("=> Init Stream Data -- end\n");
     } else {
-    	printf("=> Got stream Data with zero length\n");
+    	printf("=> Got stream Data with zero length:%u\n", flags);
     }
 #endif
 
@@ -75,6 +75,9 @@ int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
 
     if (data_len == 0) {
     	SuperflowDispatchAppLayer(dp_ctx, f, ssn, data, 0, flags);
+    	if (flags & STREAM_EOF) {
+    		MessageOnStreamEnd(p);
+    	}
     } else {
     	MessageAdd(p, data, data_len, flags);
     	SuperflowDispatchAppLayer(dp_ctx, f, ssn, d->buffer + d->posRead, d->size - d->posRead, flags);

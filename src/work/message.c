@@ -57,9 +57,9 @@ void MessageFinalize(FlowMessages *sms, FlowMessage *sm) {
 		for (uint32_t i = 0; i < 256; ++i) {
 			if (entropy_counter[i] == 0) continue;
 			float f = ((float)entropy_counter[i]) / sm->size;
-			entropy += f * log(f);
+			entropy += f * log2(f);
 		}
-		entropy = -entropy / log(256);
+		entropy = -entropy / log2(256);
 
 
 		// Add to superflow
@@ -70,7 +70,7 @@ void MessageFinalize(FlowMessages *sms, FlowMessage *sm) {
 		sm->sflow_message->flags = sm->flags;
 	}
 
-	sm->flags |= SUPERFLOW_MESSAGE_FLAG_FINISHED;
+	sm->flags |= SUPERFLOW_MESSAGE_FLAG_FINALIZED;
 	/*free(sm->buffer);
 	sm->buffer = NULL;
 	sm->capacity = 0;
@@ -132,6 +132,26 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 
 	memcpy(sm->buffer + sm->size, data, data_len);
 	sm->size += data_len;
+}
+
+void MessageSuperflowFinalize(SuperflowState *sfs) {
+	if (!sfs->superflow) return;
+
+	for (uint32_t i = 0; i < sfs->messages.size; ++i) {
+		if (! (sfs->messages.msgs[i].flags & SUPERFLOW_MESSAGE_FLAG_FINALIZED)) {
+			MessageFinalize(&sfs->messages, &sfs->messages.msgs[i]);
+		}
+	}
+}
+
+void MessageOnStreamEnd(Packet *p) {
+	if (!p->flow) return;
+	SuperflowState *sfs = &p->flow->superflow_state;
+
+	FlowMessage *msg = MessageGetCurrent(&sfs->messages);
+	if (msg && msg->size && ! (msg->flags & SUPERFLOW_MESSAGE_FLAG_FINALIZED)) {
+		MessageFinalize(&sfs->messages, msg);
+	}
 }
 
 int MessageTest01() {
