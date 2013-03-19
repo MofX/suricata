@@ -216,19 +216,19 @@ int MessageTest01() {
 
 	p.flow = &f;
 
-	MessageAdd(&p, "a", 1, STREAM_TOSERVER);
-	MessageAdd(&p, "b", 1, STREAM_TOSERVER);
-	MessageAdd(&p, "c", 1, STREAM_TOSERVER);
-	MessageAdd(&p, "defghi", 6, STREAM_TOSERVER);
+	MessageAdd(&p, (uint8_t*)"a", 1, STREAM_TOSERVER);
+	MessageAdd(&p, (uint8_t*)"b", 1, STREAM_TOSERVER);
+	MessageAdd(&p, (uint8_t*)"c", 1, STREAM_TOSERVER);
+	MessageAdd(&p, (uint8_t*)"defghi", 6, STREAM_TOSERVER);
 
 	p.ts.tv_usec = 1000 * (g_superflow_message_timeout + 5);
-	MessageAdd(&p, "jkl", 3, STREAM_TOSERVER);
-	MessageAdd(&p, "a", 1, STREAM_TOSERVER);
+	MessageAdd(&p, (uint8_t*)"jkl", 3, STREAM_TOSERVER);
+	MessageAdd(&p, (uint8_t*)"a", 1, STREAM_TOSERVER);
 
-	MessageAdd(&p, "a", 1, STREAM_TOCLIENT);
-	MessageAdd(&p, "bcde", 4, STREAM_TOCLIENT);
+	MessageAdd(&p, (uint8_t*)"a", 1, STREAM_TOCLIENT);
+	MessageAdd(&p, (uint8_t*)"bcde", 4, STREAM_TOCLIENT);
 
-	if (msgs->msgs[0].size != 9 || strncmp(msgs->msgs[0].buffer, "abcdefghi", 9) != 0) {
+	if (msgs->msgs[0].size != 9 || strncmp((char*)msgs->msgs[0].buffer, "abcdefghi", 9) != 0) {
 		memset(buffer, 0, 256);
 		memcpy(buffer, msgs->msgs[0].buffer, msgs->msgs[0].size);
 		printf("Message one != \"abcdefghi\", is: \"%s\"(%u bytes)\n", buffer, msgs->msgs[0].size);
@@ -240,7 +240,7 @@ int MessageTest01() {
 		goto error;
 	}
 
-	if (msgs->msgs[1].size != 4 || strncmp(msgs->msgs[1].buffer, "jkla", 4) != 0) {
+	if (msgs->msgs[1].size != 4 || strncmp((char*)msgs->msgs[1].buffer, "jkla", 4) != 0) {
 		memset(buffer, 0, 256);
 		memcpy(buffer, msgs->msgs[1].buffer, msgs->msgs[1].size);
 		printf("Message two != \"jkla\", is: \"%s\"(%u bytes)\n", buffer, msgs->msgs[1].size);
@@ -253,7 +253,7 @@ int MessageTest01() {
 
 	}
 
-	if (msgs->msgs[2].size != 5 || strncmp(msgs->msgs[2].buffer, "abcde", 5) != 0) {
+	if (msgs->msgs[2].size != 5 || strncmp((char*)msgs->msgs[2].buffer, "abcde", 5) != 0) {
 		memset(buffer, 0, 256);
 		memcpy(buffer, msgs->msgs[2].buffer, msgs->msgs[2].size);
 		printf("Message three != \"abcde\", is: \"%s\"(%u bytes)\n", buffer, msgs->msgs[2].size);
@@ -292,7 +292,7 @@ int MessageTest02() {
 	memset(&p, 0, sizeof(p));
 
 	FLOW_INITIALIZE(&f);
-	char buffer[g_superflow_message_max_length + 1];
+	uint8_t buffer[g_superflow_message_max_length + 1];
 
 	p.flow = &f;
 
@@ -340,8 +340,8 @@ int MessageTest03() {
 	p.flow = &f;
 
 	for (uint8_t i = 0; i < SUPERFLOW_MESSAGE_COUNT + 1; ++i) {
-		char buffer[20];
-		sprintf(buffer, "%u", i);
+		uint8_t buffer[20];
+		sprintf((char*)buffer, "%u", i);
 		MessageAdd(&p, buffer, 1, i % 2 ? STREAM_TOSERVER : STREAM_TOCLIENT);
 	}
 
@@ -349,7 +349,7 @@ int MessageTest03() {
 		char buffer[10];
 		sprintf(buffer, "%u", i);
 
-		if (msgs->msgs[i].size != 1 || strncmp(msgs->msgs[i].buffer, buffer, 1) != 0) {
+		if (msgs->msgs[i].size != 1 || strncmp((char*)msgs->msgs[i].buffer, buffer, 1) != 0) {
 			printf("Message %u has wrong size or buffer\n", i);
 			goto error;
 		}
@@ -375,33 +375,31 @@ end:
  * Test timeout
  */
 int MessageTest04() {
-	uint32_t x[1024];
 	FlowInitConfig(1);
 	SuperflowInit(1);
 	Packet p;
 	Flow f;
-	FlowMessages *msgs = &f.superflow_state.messages;
 	memset(&p, 0, sizeof(Packet));
 	memset(&f, 0, sizeof(Flow));
 	FLOW_INITIALIZE(&f);
 
 	p.flow = &f;
 
-	MessageAdd(&p, "1", 1, STREAM_TOSERVER);
+	MessageAdd(&p, (uint8_t*)"1", 1, STREAM_TOSERVER);
 
 	p.ts.tv_usec += 1000 * (g_superflow_message_timeout - 1);
 
-	MessageAdd(&p, "2", 1, STREAM_TOSERVER);
+	MessageAdd(&p, (uint8_t*)"2", 1, STREAM_TOSERVER);
 
 	p.ts.tv_usec += 1000 * (g_superflow_message_timeout - 1);
 
-	MessageAdd(&p, "3", 1, STREAM_TOSERVER);
+	MessageAdd(&p, (uint8_t*)"3", 1, STREAM_TOSERVER);
 
 	p.ts.tv_usec += 1000 * (g_superflow_message_timeout);
 
-	MessageAdd(&p, "4", 1, STREAM_TOSERVER);
+	MessageAdd(&p, (uint8_t*)"4", 1, STREAM_TOSERVER);
 
-	if (strncmp(f.superflow_state.messages.msgs[0].buffer, "1234", 4) != 0) {
+	if (strncmp((char*)f.superflow_state.messages.msgs[0].buffer, "1234", 4) != 0) {
 		printf("Buffer is not \"1234\"\n");
 		goto error;
 	}

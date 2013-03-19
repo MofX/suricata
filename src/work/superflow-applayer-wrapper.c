@@ -88,7 +88,7 @@ int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
 		} else {
 			flowBuffer = &sst->buffer_to_client;
 		}
-		if (data_len > flowBuffer->capacity - flowBuffer->size) {
+		if (data_len > (uint16_t)(flowBuffer->capacity - flowBuffer->size)) {
 			uint32_t size = flowBuffer->size + data_len;
 			//printf("Reallocating superflow buffer from %u to %u\n", d->capacity, size);
 			flowBuffer->buffer = realloc(flowBuffer->buffer, size);

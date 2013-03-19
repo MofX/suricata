@@ -150,9 +150,15 @@ void SuperflowInit(char silent) {
 	ConfNode *node = ConfGetRootNode();
 	node = ConfNodeLookupChild(node, "superflow");
 	if (node) {
-		ConfGetChildValueInt(node, "memory", &g_superflow_memory);
-		ConfGetChildValueInt(node, "message-timeout", &g_superflow_message_timeout);
-		ConfGetChildValueInt(node, "message-max-length", &g_superflow_message_max_length);
+		intmax_t i = g_superflow_memory;
+		ConfGetChildValueInt(node, "memory", &i);
+		g_superflow_memory = i;
+		i = g_superflow_message_timeout;
+		ConfGetChildValueInt(node, "message-timeout", &i);
+		g_superflow_message_timeout = i;
+		i = g_superflow_message_max_length;
+		ConfGetChildValueInt(node, "message-max-length", &i);
+		g_superflow_message_max_length = i;
 	}
 
 	// Calculate the number of superflows and their actual memory requirement
@@ -319,7 +325,7 @@ int SuperflowTest01() {
 
 	p.flow = &f;
 
-	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, "a", 1, STREAM_START | STREAM_TOSERVER);
+	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, (uint8_t*)"a", 1, STREAM_START | STREAM_TOSERVER);
 
 	if (msgs->size != 1) {
 		printf("Expected one message in use\n");
@@ -356,7 +362,7 @@ int SuperflowTest02() {
 	AlpProtoFinalize2Thread(&dp_ctx);
 	FLOW_INITIALIZE(&f);
 
-	uint8_t *buffer_to_server = "GET / HTTP/1.0\nContent-length: -1\n\n";
+	char *buffer_to_server = "GET / HTTP/1.0\nContent-length: -1\n\n";
 
 	f.flags |= FLOW_IPV4;
 
@@ -366,10 +372,10 @@ int SuperflowTest02() {
 	f.protoctx = &ssn;
 
 	for (uint32_t i = 0; i < SUPERFLOW_MESSAGE_COUNT; ++i) {
-		uint8_t buffer[256];
+		char buffer[256];
 		sprintf(buffer, "%u", i);
 		uint8_t flags = 0;
-		uint8_t * b = buffer;
+		char * b = buffer;
 		uint32_t len = strlen(buffer);
 
 		if (i == 0) {
@@ -379,7 +385,7 @@ int SuperflowTest02() {
 		}
 
 		flags |= (i % 2) ? STREAM_TOCLIENT : STREAM_TOSERVER;
-		SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, b, len, flags);
+		SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, (uint8_t*)b, len, flags);
 	}
 
 	if (msgs->size != SUPERFLOW_MESSAGE_COUNT) {
@@ -392,7 +398,7 @@ int SuperflowTest02() {
 		goto error;
 	}
 
-	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, "x", 1, (SUPERFLOW_MESSAGE_COUNT % 2) ? STREAM_TOCLIENT : STREAM_TOSERVER);
+	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, (uint8_t*)"x", 1, (SUPERFLOW_MESSAGE_COUNT % 2) ? STREAM_TOCLIENT : STREAM_TOSERVER);
 
 	if (!(f.flags & FLOW_NO_APPLAYER_INSPECTION)) {
 		printf("FLOW_NO_APPLAYER_INSPECTION should be set\n");
@@ -416,14 +422,11 @@ end:
 int SuperflowTest03() {
 	FlowInitConfig(1);
 	Flow f;
-	FlowMessages *msgs = &f.superflow_state.messages;
 	Packet p;
 	AlpProtoDetectThreadCtx dp_ctx;
 	TcpSession ssn;
 
 	FLOW_INITIALIZE(&f);
-
-	uint8_t *buffer_to_server = "GET / HTTP/1.0\nContent-length: -1\n\n";
 
 	f.flags |= FLOW_IPV4;
 
@@ -435,7 +438,7 @@ int SuperflowTest03() {
 	SuperflowInit(1);
 	AlpProtoFinalize2Thread(&dp_ctx);
 
-	char buffer[g_superflow_message_max_length*2];
+	uint8_t buffer[g_superflow_message_max_length*2];
 
 
 	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, g_superflow_message_max_length, STREAM_START | STREAM_TOSERVER);
@@ -448,8 +451,8 @@ int SuperflowTest03() {
 
 	int r = 0;
 	goto end;
-error:
-	r = -1;
+//error:
+//	r = -1;
 end:
 	FlowShutdown();
 	SuperflowFree();
@@ -465,7 +468,6 @@ int SuperflowTest04() {
 	Packet p;
 	memset(&p, 0, sizeof(Packet));
 	AlpProtoDetectThreadCtx dp_ctx;
-	TcpSession ssn;
 	IPV4Hdr ip4hdr;
 	TCPHdr tcphdr;
 	p.ip4h = &ip4hdr;
@@ -613,7 +615,7 @@ int SuperflowTest05() {
 	sflow = emmitPacket(i++);
 
 	if (sflow != sflow_head) {
-		printf("New superflow is not sflow_head, %x\n", sflow);
+		printf("New superflow is not sflow_head, %lx\n", (uint64_t)sflow);
 		goto error;
 	}
 
@@ -623,7 +625,7 @@ int SuperflowTest05() {
 	sflow = emmitPacket(i++);
 
 	if (sflow != sflow_head) {
-		printf("New superflow is not sflow_head, %x, %x\n", sflow, sflow_head);
+		printf("New superflow is not sflow_head, %lx, %lx\n", (uint64_t)sflow, (uint64_t)sflow_head);
 		goto error;
 	}
 
@@ -661,7 +663,7 @@ TmEcode StreamTcp (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, Packe
 Packet * emitTCPPacket(char* data, uint32_t data_len, uint8_t flags, char* src, char* dst, uint16_t srcport, uint16_t dstport,
 						uint32_t * seq, uint32_t * ack, struct timeval ts, ThreadVars *tv,
 					    StreamTcpThread *stt, PacketQueue *pq) {
-    Packet *p = UTHBuildPacketReal(data, data_len, IPPROTO_TCP, src, dst, srcport, dstport);
+    Packet *p = UTHBuildPacketReal((uint8_t*) data, data_len, IPPROTO_TCP, src, dst, srcport, dstport);
     p->ts = ts;
     p->tcph->th_flags = flags;
     p->tcph->th_seq = htonl(*seq);
@@ -691,8 +693,6 @@ int SuperflowTest06() {
 	AlpProtoFinalize2Thread(&dp_ctx);
 	SuperflowInit(1);
 	StreamTcpInitConfig(1);
-
-	uint64_t i = 0;
 
     ThreadVars tv;
     StreamTcpThread stt;
@@ -757,7 +757,7 @@ int SuperflowTest06() {
     	goto error;
     }
 
-    if (strcmp(f->superflow_state.messages.msgs[0].buffer, "test") != 0) {
+    if (strcmp((char*)f->superflow_state.messages.msgs[0].buffer, "test") != 0) {
     	printf("Buffer doesn't contain \"test\"\n");
     	goto error;
     }
@@ -775,7 +775,7 @@ int SuperflowTest06() {
     	goto error;
     }
 
-    if (strcmp(f->superflow_state.messages.msgs[1].buffer, "test2") != 0) {
+    if (strcmp((char*)f->superflow_state.messages.msgs[1].buffer, "test2") != 0) {
 		printf("Buffer doesn't contain \"test2\"\n");
 		goto error;
 	}
@@ -791,7 +791,7 @@ int SuperflowTest06() {
     	goto error;
     }
 
-    if (strncmp(f->superflow_state.messages.msgs[1].buffer, "test2\0test345\0", 13) != 0) {
+    if (strncmp((char*)f->superflow_state.messages.msgs[1].buffer, "test2\0test345\0", 13) != 0) {
 		printf("Buffer doesn't contain \"test2\\0test345\"\n");
 		goto error;
 	}
@@ -819,8 +819,6 @@ int SuperflowTest07() {
 	AlpProtoFinalize2Thread(&dp_ctx);
 	SuperflowInit(1);
 	StreamTcpInitConfig(1);
-
-	uint64_t i = 0;
 
     ThreadVars tv;
     StreamTcpThread stt;
