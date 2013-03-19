@@ -124,6 +124,7 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 
 		if (size > sm->capacity) {
 			//printf("Reallocating message buffer from %u to %u\n", sm->capacity, size);
+			// TODO: Realloc may fail
 			sm->buffer = realloc(sm->buffer, size);
 			sm->capacity = size;
 		}
@@ -138,7 +139,7 @@ void MessageSuperflowFinalize(SuperflowState *sfs) {
 	if (!sfs->superflow) return;
 
 	for (uint32_t i = 0; i < sfs->messages.size; ++i) {
-		if (! (sfs->messages.msgs[i].flags & SUPERFLOW_MESSAGE_FLAG_FINALIZED)) {
+		if ((sfs->messages.msgs[i].flags & (SUPERFLOW_MESSAGE_FLAG_TOCLIENT | SUPERFLOW_MESSAGE_FLAG_TOSERVER)) && !(sfs->messages.msgs[i].flags & SUPERFLOW_MESSAGE_FLAG_FINALIZED)) {
 			MessageFinalize(&sfs->messages, &sfs->messages.msgs[i]);
 		}
 	}
