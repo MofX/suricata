@@ -1,3 +1,32 @@
+/**
+ * \file
+ * \author Jörg Vehlow <fh@jv-coder.de>
+ *
+ * Based on uthash by Troy D. Hanson:
+ *
+ * Copyright (c) 2005-2013, Troy D. Hanson  http://troydhanson.github.com/uthash/
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+ * IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+ * PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
+ * OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
 #include <stdlib.h>
 #include <memory.h>
 #include <stdio.h>
@@ -13,17 +42,26 @@
 typedef struct UT_hash_table_ UT_hash_table;
 typedef struct UT_hash_bucket_ UT_hash_bucket;
 
-
+/**
+ * Converts an index to a pointer to superflow
+ */
 __inline Superflow * hash_index_to_superflow(UT_hash_table *tbl, uint32_t index) {
 	if (index == 0) return NULL;
 	return &tbl->base[index];
 }
 
+/**
+ * Converts a superflow to an index.
+ */
 __inline uint32_t hash_superflow_to_index(UT_hash_table *tbl, Superflow* flow) {
 	if (flow == NULL) return 0;
 	return (uint32_t) (flow - tbl->base);
 }
 
+/**
+ * Initializes the hasmap.
+ * base must be the address of the begin of the continuous memory chunk.
+ */
 UT_hash_table * superflow_hash_new(Superflow* base) {
 	const unsigned int initial_num_buckets_log2 = 24;
 	const unsigned int initial_num_buckets = 1 << initial_num_buckets_log2; //power<2, initial_num_buckets_log2>::value;
@@ -41,6 +79,9 @@ UT_hash_table * superflow_hash_new(Superflow* base) {
 	return tbl;
 }
 
+/**
+ * Frees a hashmap
+ */
 void superflow_hash_free(UT_hash_table* tbl) {
 	if (tbl == NULL) return;
 
@@ -52,16 +93,25 @@ void superflow_hash_free(UT_hash_table* tbl) {
 	uthash_free(tbl, sizeof(UT_hash_table));
 }
 
+/**
+ * Counts the elements in a hashmap
+ */
 unsigned int superflow_hash_count(struct UT_hash_table_ *tbl) {
 	if (tbl == NULL) return 0;
 	else return tbl->num_items;
 }
 
+/**
+ * Returns the head of the linked list.
+ * Use superflow_hash_next to get the next superflow
+ */
 Superflow* superflow_hash_get_head(UT_hash_table *tbl) {
-
 	return hash_index_to_superflow(tbl, tbl->head);
 }
 
+/**
+ * The hash function
+ */
 unsigned int hash_fcn(void* key, unsigned int keylen, unsigned int num_bkts, unsigned int *hashv) {
 	unsigned int bkt;
 
@@ -182,6 +232,9 @@ unsigned int hash_fcn(void* key, unsigned int keylen, unsigned int num_bkts, uns
 	return bkt;
 }
 
+/**
+ * Expands the number of buckets
+ */
 void hash_expand_buckets(UT_hash_table * tbl) {
 	unsigned _he_bkt;
 	unsigned _he_bkt_i;
@@ -225,6 +278,9 @@ void hash_expand_buckets(UT_hash_table * tbl) {
 	uthash_expand_fyi(tbl);
 }
 
+/**
+ * Adds a superflow to a bucket
+ */
 void hash_add_to_bucket(UT_hash_table *tbl, unsigned bkt, Superflow *value) {
 	UT_hash_bucket *head = &tbl->buckets[bkt];
 	head->count++;
@@ -239,6 +295,9 @@ void hash_add_to_bucket(UT_hash_table *tbl, unsigned bkt, Superflow *value) {
 	}
 }
 
+/**
+ * Adds a superflow to the hashmap
+ */
 void superflow_hash_add(UT_hash_table *tbl, Superflow* value) {
 	unsigned _ha_bkt;
 	value->hh.next = 0;
@@ -257,6 +316,10 @@ void superflow_hash_add(UT_hash_table *tbl, Superflow* value) {
 	hash_add_to_bucket(tbl, _ha_bkt, value);
 }
 
+/**
+ * Touches a superflow in the hashmap.
+ * This function moves the superflow to the end of the linked list.
+ */
 void superflow_hash_touch(UT_hash_table *tbl, Superflow* value) {
 	// TODO: This can be optimized. Currently it is just remove and add in sequence
 
@@ -290,6 +353,9 @@ void superflow_hash_touch(UT_hash_table *tbl, Superflow* value) {
 	}
 }
 
+/**
+ * Finds a superflow in a bucket
+ */
 Superflow* hash_find_in_bkt(UT_hash_table* tbl, unsigned bkt, union SuperflowKey_ *key) {
 	Superflow *out = NULL;
 	UT_hash_bucket *head = &tbl->buckets[bkt];
@@ -303,10 +369,16 @@ Superflow* hash_find_in_bkt(UT_hash_table* tbl, unsigned bkt, union SuperflowKey
 	return out;
 }
 
+/**
+ * Finds a superflow in the hash map
+ */
 Superflow* superflow_hash_find(UT_hash_table * tbl, Superflow* value) {
 	return superflow_hash_find_by_key(tbl, &value->addrs);
 }
 
+/**
+ * Find a superflow in the hashmap by it's key
+ */
 Superflow* superflow_hash_find_by_key(UT_hash_table * tbl, union SuperflowKey_ *key) {
 	Superflow* out = NULL;
 	unsigned int hashv = 0;
@@ -319,6 +391,9 @@ Superflow* superflow_hash_find_by_key(UT_hash_table * tbl, union SuperflowKey_ *
 	return out;
 }
 
+/**
+ * Deletes a superflow from a bucket
+ */
 void hash_del_in_bkt(UT_hash_table *tbl, uint32_t bkt, Superflow *hh_del) {
 	UT_hash_bucket *head = &tbl->buckets[bkt];
 	head->count--;
@@ -333,6 +408,9 @@ void hash_del_in_bkt(UT_hash_table *tbl, uint32_t bkt, Superflow *hh_del) {
 	}
 }
 
+/**
+ * Deletes a superflow from the hashmap
+ */
 void superflow_hash_del(UT_hash_table * tbl, Superflow* value) {
 	unsigned _hd_bkt;
 	if (hash_superflow_to_index(tbl, value) == tbl->tail) {
@@ -357,16 +435,20 @@ void superflow_hash_del(UT_hash_table * tbl, Superflow* value) {
 	tbl->num_items--;
 }
 
+/**
+ * Returns the next element in list order from the hashmap
+ */
 Superflow* superflow_hash_next( UT_hash_table *tbl, Superflow* current )
 {
 	if (current) {
 		return hash_index_to_superflow(tbl, current->hh.next);
-	}// else {
+	}
 	return NULL;
-	//}
-	//return (current ? hash_index_to_superflow(tbl, current->hh.next) : NULL);
 }
 
+/**
+ * Tests creation of the hashmap
+ */
 int SuperflowHashTest01() {
 	UT_hash_table *tbl;
 	Superflow sflows[10];
@@ -393,6 +475,9 @@ end:
 	return r;
 }
 
+/**
+ * Tests insert and removal
+ */
 int SuperflowHashTest02() {
 	UT_hash_table *tbl;
 	Superflow sflows[10];
@@ -461,6 +546,9 @@ end:
 	return r;
 }
 
+/**
+ * Tests insert and removal
+ */
 int SuperflowHashTest03() {
 	UT_hash_table *tbl;
 	Superflow sflows[10];
@@ -529,6 +617,9 @@ end:
 	return r;
 }
 
+/**
+ * Tests touching
+ */
 int SuperflowHashTest04() {
 	UT_hash_table *tbl;
 	Superflow sflows[10];
@@ -571,6 +662,9 @@ end:
 	return r;
 }
 
+/**
+ * Tests correct update of linked list on delete only element
+ */
 int SuperflowHashTest05() {
 	UT_hash_table *tbl;
 	Superflow sflow;

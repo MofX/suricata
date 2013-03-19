@@ -1,3 +1,8 @@
+/**
+ * \file
+ * \author Jörg Vehlow <fh@jv-coder.de>
+ *
+ */
 #ifndef __SUPERFLOW_WRAPPER_H__
 #define __SUPERFLOW_WRAPPER_H__
 

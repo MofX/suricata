@@ -1,3 +1,10 @@
+/**
+ * \file
+ * \author Jörg Vehlow <fh@jv-coder.de>
+ *
+ *This file contains all functions regarding superflow message parsing.
+ */
+
 #include "suricata-common.h"
 
 #include <math.h>
@@ -20,6 +27,10 @@
 #include "work/superflow.h"
 #include "work/message.h"
 
+/**
+ * Returns the current message.
+ * Returns NULL if no more messages are available.
+ */
 FlowMessage* MessageGetCurrent(FlowMessages *sms) {
 	if (sms->size == 0 || sms->size == SUPERFLOW_MESSAGE_COUNT + 1) {
 		return NULL;
@@ -30,6 +41,10 @@ FlowMessage* MessageGetCurrent(FlowMessages *sms) {
 	}
 }
 
+/**
+ * Returns the next message and increments the message counter.
+ * Returns NULL if no more messages are available.
+ */
 FlowMessage* MessageGetNext(SuperflowState *sst) {
 	FlowMessages *sms = &sst->messages;
 	if (sms->size == SUPERFLOW_MESSAGE_COUNT + 1) {
@@ -44,6 +59,11 @@ FlowMessage* MessageGetNext(SuperflowState *sst) {
 	}
 }
 
+/**
+ * Finalizes a message. This is done, when a new message is created or the stream is closed.
+ * If a superflows message is assoziated with this message, the entropy gets ccalculated and
+ * all data in the superflow message get set.
+ */
 void MessageFinalize(FlowMessages *sms, FlowMessage *sm) {
 	if (sm->sflow_message) {
 		float entropy = 0;
@@ -64,7 +84,7 @@ void MessageFinalize(FlowMessages *sms, FlowMessage *sm) {
 
 		// Add to superflow
 
-		sm->sflow_message->entropy = entropy * 200;
+		sm->sflow_message->entropy = entropy * 255;
 		sm->sflow_message->length = sm->size;
 		sm->sflow_message->time = sm->first_update.tv_sec * 1000 + sm->first_update.tv_usec / 1000;
 		sm->sflow_message->flags = sm->flags;
@@ -77,13 +97,20 @@ void MessageFinalize(FlowMessages *sms, FlowMessage *sm) {
 	sm->size = 0;*/
 }
 
+/**
+ * Adds some content to the current message.
+ * If the direction changed or a timeout occured, a new message is created and the
+ * current one is finalized.
+ */
 void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 	SuperflowState *sst = &p->flow->superflow_state;
 	FlowMessages *sms = &sst->messages;
 	FlowMessage *sm = MessageGetCurrent(sms);
+	// If no current message: This is the first message
 	if (!sm) {
 		sm = MessageGetNext(sst);
 	}
+	// If no current message: No more free messages available
 	if (!sm) {
 		sst->flags |= SUPERFLOW_FLAG_MESSAGE_OVERFLOW;
 		return;
@@ -92,49 +119,64 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 	struct timeval diff;
 	timersub(&p->ts, &sm->last_update, &diff);
 	uint32_t diff_ms = diff.tv_usec / 1000 + diff.tv_sec * 1000;
-
 	const uint8_t dirflags = SUPERFLOW_MESSAGE_FLAG_TOCLIENT | SUPERFLOW_MESSAGE_FLAG_TOSERVER;
 	//printf("dirflags: %u, diff_ms: %u\n", (sm->flags & dirflags), diff_ms);
+
+	// Check if direction flag is set (no new message) and if direction differs from current direction
+	// or if message timed out.
 	if ((sm->flags & dirflags) && (((sm->flags & dirflags) != (flags & dirflags))
 			|| (diff_ms > g_superflow_message_timeout) || (flags & STREAM_EOF))) {
-		//printf("New message\n");
+		// Finalize and get next message
 		MessageFinalize(sms, sm);
 		sm = MessageGetNext(sst);
 	}
+
+	// If no current message: No more free messages available
 	if (!sm) {
 		sst->flags |= SUPERFLOW_FLAG_MESSAGE_OVERFLOW;
 		return;
 	}
 
+	// If no direction flag is set, this is a new message
 	if (!(sm->flags & dirflags)) {
 		sm->flags |= flags & dirflags;
 		sm->first_update = p->ts;
 	}
 	if (!data_len) return;
 
-	sm->last_update= p->ts;
+	sm->last_update = p->ts;
 
-	if (sm->capacity - sm->size < data_len) {
-		uint32_t size = sm->size + data_len;
+	uint32_t bytes_to_write = data_len;
+	// Resize the buffer to fit the new data
+	if (sm->capacity - sm->size < bytes_to_write) {
+		uint32_t size = sm->size + bytes_to_write;
 		if (size > g_superflow_message_max_length) {
 			size = g_superflow_message_max_length;
-			data_len = size - sm->size;
+			bytes_to_write = size - sm->size;
 			sm->flags |= SUPERFLOW_MESSAGE_FLAG_OVERLENGTH;
 		}
 
 		if (size > sm->capacity) {
 			//printf("Reallocating message buffer from %u to %u\n", sm->capacity, size);
-			// TODO: Realloc may fail
 			sm->buffer = realloc(sm->buffer, size);
+			if (!sm->buffer) {
+				printf("Realloc failed\n");
+				exit(-1);
+			}
 			sm->capacity = size;
 		}
 	}
-	if (!data_len) return;
 
-	memcpy(sm->buffer + sm->size, data, data_len);
-	sm->size += data_len;
+	if (!bytes_to_write) return;
+
+	memcpy(sm->buffer + sm->size, data, bytes_to_write);
+	sm->size += bytes_to_write;
 }
 
+/**
+ * This function gets called when a flow gets freed by suricata.
+ * It finalizes all messages
+ */
 void MessageSuperflowFinalize(SuperflowState *sfs) {
 	if (!sfs->superflow) return;
 
@@ -145,6 +187,9 @@ void MessageSuperflowFinalize(SuperflowState *sfs) {
 	}
 }
 
+/**
+ * Called when a stream ends. It just finalizes the current message
+ */
 void MessageOnStreamEnd(Packet *p) {
 	if (!p->flow) return;
 	SuperflowState *sfs = &p->flow->superflow_state;
@@ -155,6 +200,9 @@ void MessageOnStreamEnd(Packet *p) {
 	}
 }
 
+/**
+ * Test basic AddMessage
+ */
 int MessageTest01() {
 	FlowInitConfig(1);
 	SuperflowInit(1);
@@ -232,6 +280,9 @@ end:
 	return r;
 }
 
+/**
+ * test overlength flag
+ */
 int MessageTest02() {
 	FlowInitConfig(1);
 	SuperflowInit(1);
@@ -273,6 +324,9 @@ end:
 	return r;
 }
 
+/**
+ * Test overflow flag
+ */
 int MessageTest03() {
 	FlowInitConfig(1);
 	SuperflowInit(1);
@@ -317,6 +371,9 @@ end:
 	return r;
 }
 
+/**
+ * Test timeout
+ */
 int MessageTest04() {
 	uint32_t x[1024];
 	FlowInitConfig(1);

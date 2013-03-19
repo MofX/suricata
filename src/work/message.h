@@ -1,3 +1,8 @@
+/**
+ * \file
+ * \author Jörg Vehlow <fh@jv-coder.de>
+ */
+
 #ifndef __MESSAGE_H__
 #define __MESSAGE_H__
 

@@ -1,3 +1,8 @@
+/**
+ * \file
+ * \author Jörg Vehlow <fh@jv-coder.de>
+ */
+
 #include "suricata-common.h"
 
 #include "app-layer.h"
@@ -43,6 +48,11 @@ uint32_t g_superflow_message_timeout;
 uint32_t g_superflow_message_max_length;
 
 
+/**
+ * Called by FlowHandlePacekt in flow.c
+ * This function associates a superflow with a flow or
+ * if there is one associated, it just touches it (see SuperflowTouch).
+ */
 void SuperflowHandlePacket(Packet* p) {
 	if (!g_superflow_hashtable) return;
 	if (!p->flow) return;
@@ -57,58 +67,82 @@ void SuperflowHandlePacket(Packet* p) {
 	}
 }
 
+/**
+ * Touches a superflow in the hash.
+ * I.e. moving the superflow to the end of the linked list.
+ */
 void SuperflowTouch(Superflow* sflow) {
 	superflow_hash_touch(g_superflow_hashtable, sflow);
 }
 
+/**
+ * Associates the flow of the given packet to an existing superflow, a new one or to a recycled one.
+ * There is a possbility, that no flow is attached afterwards, because there is no matching flow and
+ * all superflows have a refcount > 0.
+ */
 void SuperflowAttachToFlow(Packet* packet) {
 	Flow * flow = packet->flow;
 	union SuperflowKey_ key;
 
+	// The key is build from the source and destination address
 	key.srvr = flow->dst.address.address_un_data32[0];
 	key.clnt = flow->src.address.address_un_data32[0];
 
 	Superflow* sflow = NULL;
 
+	// Look for a matching superflow in the hashmap
 	sflow = superflow_hash_find_by_key(g_superflow_hashtable, &key);
 
 	if (sflow == NULL) {
+		// Take the superflow from the heap (the not used superflows)
 		sflow = SuperflowFromHeap();
 
 		if (sflow == NULL) {
+			// Take the oldest superflow from the hashmap
 			sflow = SuperflowFromHash();
 		}
 
 		if (sflow == NULL) {
+			// No free superflow
 			SCPerfCounterIncr(g_perfId_superflow_drop, g_perfCounterArray);
 			SCPerfUpdateCounterArray(g_perfCounterArray, &g_perfContext, 0);
 			//printf("Warning: No free Superflow. Can't associate superflow to flow. : %u, %x\n", g_perfId_superflow_drop, g_perfCounterArray);
 			return;
 		}
 
+		// Reset superflow
 		memset(sflow, 0, sizeof(Superflow));
-//		sflow->messageCount = 0;
-//		memset(&sflow->msgs, 0, 8 * sizeof(SuperflowMessage));
-//		sflow->refCount = 0;
 		sflow->addrs.key = key.key;
+		// Add it to the hashtable
 		superflow_hash_add(g_superflow_hashtable, sflow);
 	} else {
+		// Touch the superflow if a matching superflow was found in the hashmap
 		SuperflowTouch(sflow);
 	}
 
+	// The superflow is now in use so increment the refcount
 	++sflow->refCount;
+
+	// Assign the superflow to the superflow_state struct
 	flow->superflow_state.superflow = sflow;
 }
 
+/**
+ * Returns the entropy of a superflow message
+ */
 float SuperflowGetEntropy(struct SuperflowMessage_ *sfm) {
-	return sfm->entropy / 200.;
+	return sfm->entropy / 255.;
 }
 
+/**
+ * Initializes the superflow parser.
+ */
 void SuperflowInit(char silent) {
 	if (g_superflows) {
 		printf("Superflows is not NULL, SuperflowInit called twice?\n");
 		exit(-1);
 	}
+	// Default values (used in unittests as well)
 	g_superflow_memory = 1024;
 	g_superflow_message_timeout = 200;
 	g_superflow_message_max_length = 2048;
@@ -121,19 +155,24 @@ void SuperflowInit(char silent) {
 		ConfGetChildValueInt(node, "message-max-length", &g_superflow_message_max_length);
 	}
 
-	g_superflow_count = ((uint32_t)(g_superflow_memory / sizeof(Superflow)));
+	// Calculate the number of superflows and their actual memory requirement
+	g_superflow_count = g_superflow_memory / sizeof(Superflow);
 	s_superflow_memory_real = g_superflow_count * sizeof(Superflow);
 
 
 	if (!silent) {
 		printf("Allocating %u bytes of memory for %u superflows\n", s_superflow_memory_real, g_superflow_count);
 	}
+	// Allocate the superflows
 	g_superflows = malloc(s_superflow_memory_real);
 	if (!g_superflows) {
 		printf("Allocating superflows failed\n");
 		exit(-1);
 	}
+	// Initialize the superflow hashtable
+	g_superflow_hashtable = superflow_hash_new(g_superflows);
 
+	// Create the performance counters
 	memset(&g_perfContext, 0, sizeof(SCPerfContext));
 
 	g_perfId_superflow_drop = SCPerfRegisterCounter("superflow.droped_sflows", "Superflow", SC_PERF_TYPE_UINT64, "Number of dropped superflows", &g_perfContext);
@@ -144,24 +183,26 @@ void SuperflowInit(char silent) {
 
 	SCPerfAddToClubbedTMTable("Superflow", &g_perfContext);
 	g_perfCounterArray = SCPerfGetAllCountersArray(&g_perfContext);
-
-	g_superflow_hashtable = superflow_hash_new(g_superflows);
 }
 
+/**
+ * Frees all resources used by the superflow parser
+ */
 void SuperflowFree() {
 	Superflow *sflow = NULL;
 
+	// Free the hashmap
 	while ((sflow = superflow_hash_get_head(g_superflow_hashtable))) {
 		superflow_hash_del(g_superflow_hashtable, sflow);
 	}
-
 	superflow_hash_free(g_superflow_hashtable);
 
+	// Free the superflows
 	free(g_superflows);
 
+	// Release the performance counters
 	SCPerfReleasePCA(g_perfCounterArray);
 	g_perfCounterArray = NULL;
-
 	SCPerfReleasePerfCounterS(g_perfContext.head);
 
 	g_superflows = NULL;
@@ -177,11 +218,19 @@ void SuperflowFree() {
 	s_superflow_memory_real = 0;
 }
 
+/**
+ * Called when suricata initializes a flow to do superflow specific setup
+ */
 void SuperflowInitFlow(Flow* flow) {
 	memset(&flow->superflow_state, 0, sizeof(SuperflowState));
 	//printf("Init flow: %llx, %u\n", flow, flow->superflow_state.messages.msgs[0].capacity);
 }
 
+/**
+ * Called when suricata frees a flow.
+ * This finalizes all messages and reduces the refcount of
+ * the associated superflow
+ */
 void SuperflowFreeFlow(Flow* flow) {
 	//printf("Free flow: %llx\n", flow);
 
@@ -197,11 +246,18 @@ void SuperflowFreeFlow(Flow* flow) {
 	}
 }
 
+/**
+ * Called when suricata recycles a flow.
+ */
 void SuperflowRecycleFlow(Flow* flow) {
 	SuperflowFreeFlow(flow);
 	SuperflowInitFlow(flow);
 }
 
+/**
+ * Returns a new superflow from the reserved superflows.
+ * Returns NULLL if no more free superflows are available.
+ */
 Superflow* SuperflowFromHeap() {
 	if (g_superflow_used_count == g_superflow_count) return NULL;
 
@@ -211,6 +267,11 @@ Superflow* SuperflowFromHeap() {
 	return &g_superflows[g_superflow_used_count++];
 }
 
+/**
+ * Returns the first superflow from the list of that hashmap that has refcount set to zero
+ * and removes it from the hashmap.
+ * Return NULL, if all superflows have a refcount > 0
+ */
 Superflow* SuperflowFromHash() {
 	Superflow* sflow = superflow_hash_get_head(g_superflow_hashtable);
 	if (!sflow) return NULL;
@@ -226,7 +287,9 @@ Superflow* SuperflowFromHash() {
 	return sflow;
 }
 
-
+/**
+ * Returns the next free message in a superflow and increments the counter.
+ */
 SuperflowMessage * SuperflowGetNextMessage(SuperflowState * sfs) {
 	Superflow * sflow = sfs->superflow;
 	if (!sflow) return NULL;
@@ -238,6 +301,9 @@ SuperflowMessage * SuperflowGetNextMessage(SuperflowState * sfs) {
 	}
 }
 
+/**
+ * This test simply tries to add some data to the flow message buffer and checks  it.
+ */
 int SuperflowTest01() {
 	FlowInitConfig(1);
 	Flow f;
@@ -271,6 +337,13 @@ end:
 	return r;
 }
 
+/**
+ * This tests adds the maximum number of messages to the flow.
+ * It also triggers the http applayer parser and test if the
+ * FLOW_NO_APPLAYER_INSPECTION flag is set properly.
+ * The FLOW_NO_APPLAYER_INSPECTION flag should be set
+ * if the applayer parser sets it before AND if the maximum number of messages is reached.
+ */
 int SuperflowTest02() {
 	FlowInitConfig(1);
 	Flow f;
@@ -337,6 +410,9 @@ end:
 	return r;
 }
 
+/**
+ * This test checks if there are problem when one message is very big.
+ */
 int SuperflowTest03() {
 	FlowInitConfig(1);
 	Flow f;
@@ -359,16 +435,16 @@ int SuperflowTest03() {
 	SuperflowInit(1);
 	AlpProtoFinalize2Thread(&dp_ctx);
 
-	char buffer[4096];
+	char buffer[g_superflow_message_max_length*2];
 
 
-	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, 2048, STREAM_START | STREAM_TOSERVER);
-	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, 2048, STREAM_TOSERVER);
-	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, 2048, STREAM_TOSERVER);
-	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, 2048, STREAM_TOSERVER);
-	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, 4096, STREAM_TOCLIENT);
-	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, 2048, STREAM_TOCLIENT);
-	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, 2048, STREAM_TOCLIENT);
+	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, g_superflow_message_max_length, STREAM_START | STREAM_TOSERVER);
+	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, g_superflow_message_max_length, STREAM_TOSERVER);
+	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, g_superflow_message_max_length, STREAM_TOSERVER);
+	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, g_superflow_message_max_length, STREAM_TOSERVER);
+	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, g_superflow_message_max_length * 2, STREAM_TOCLIENT);
+	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, g_superflow_message_max_length, STREAM_TOCLIENT);
+	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, g_superflow_message_max_length, STREAM_TOCLIENT);
 
 	int r = 0;
 	goto end;
@@ -381,6 +457,9 @@ end:
 	return r;
 }
 
+/**
+ * This test checks if the refcounting works properly.
+ */
 int SuperflowTest04() {
 	FlowInitConfig(1);
 	Packet p;
@@ -471,6 +550,9 @@ end:
 	return r;
 }
 
+/**
+ * Used by test method to create a valid semi-random packet and pass it to the flowhandler.
+ */
 Superflow* emmitPacket(uint64_t i) {
 	union SuperflowKey_ key;
 	key.key = i;
@@ -496,6 +578,10 @@ Superflow* emmitPacket(uint64_t i) {
 	return sflow;
 }
 
+/**
+ * This test checks what happens, if the superflow heap is exhausted and
+ * also if the head of the list is in use or all superflows are in use (in use = refcount > 0)
+ */
 int SuperflowTest05() {
 	FlowInitConfig(1);
 	AlpProtoDetectThreadCtx dp_ctx;
@@ -565,8 +651,13 @@ end:
 	return r;
 }
 
+// Prototype for private method required for injecting packets into suricata.
 TmEcode StreamTcp (ThreadVars *tv, Packet *p, void *data, PacketQueue *pq, PacketQueue *postpq);
 
+/**
+ * Creates a packet with the specified properties and injects it into suricate at a very low point.
+ * The packet is inserted where the lowest layers (like ethernet) deliver their decoded packets to.
+ */
 Packet * emitTCPPacket(char* data, uint32_t data_len, uint8_t flags, char* src, char* dst, uint16_t srcport, uint16_t dstport,
 						uint32_t * seq, uint32_t * ack, struct timeval ts, ThreadVars *tv,
 					    StreamTcpThread *stt, PacketQueue *pq) {
@@ -590,6 +681,10 @@ Packet * emitTCPPacket(char* data, uint32_t data_len, uint8_t flags, char* src, 
     return p;
 }
 
+/**
+ * This tests tests the superflow parser with actual packets. It does correct handshakes for
+ * connection setup and teardown.
+ */
 int SuperflowTest06() {
 	FlowInitConfig(1);
 	AlpProtoDetectThreadCtx dp_ctx;
@@ -713,6 +808,11 @@ end:
 	return r;
 }
 
+/**
+ * This tests tests the superflow parser with actual packets. It does correct handshakes for
+ * connection setup and teardown.
+ * It tests if the superflow structures get set up correctly. (Like entropy)
+ */
 int SuperflowTest07() {
 	FlowInitConfig(1);
 	AlpProtoDetectThreadCtx dp_ctx;
@@ -903,7 +1003,7 @@ int SuperflowTest07() {
     }
 
     if (SuperflowGetEntropy(&f->superflow_state.superflow->msgs[1]) < 0.99) {
-    	printf("Entropy of superflow message[1] is less than 0.99\n");
+    	printf("Entropy of superflow message[1] is less than 0.99: %f\n", SuperflowGetEntropy(&f->superflow_state.superflow->msgs[1]));
     	goto error;
     }
 

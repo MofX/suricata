@@ -1,3 +1,13 @@
+/**
+ * \file
+ * \author Jörg Vehlow <fh@jv-coder.de>
+ *
+ * This file provides a wrapper around the original AppLayerHandleTCPData from app-layer.c.
+ *
+ * The wrapper function ensures that it get's all the data it needs and it calls the superflow
+ * handlers and the applayer parsers afterwards.
+ *
+ */
 
 #include "suricata-common.h"
 
@@ -22,6 +32,32 @@ int SuperflowDispatchAppLayer(AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
 
 //#define PRINT
 
+/**
+ * This is the main wrapper function. It gets called from app-layer.c when there is packet
+ * payload available or the stream is closed.
+ * flags will be a combination of STREAM_*
+ * Important flags are STREAM_TOCLIENT, STREAM_TOSERVER and STREAM_EOF
+ *
+ * The most challenging part of this function is about the data being parsed to this function and the
+ * data the app layer parser needs.
+ *
+ * This function can get called multiple times with the same data. Each time there will be some more
+ * data. This may look like:
+ * 		"GET"
+ * 		"GET /"
+ * 		"GET / HTTP/1.1"
+ * The data begins with the first byte of the stream until an applayer parser tell suricata,
+ * that it parsed the data. Then suricata will only pass new data.
+ *
+ * Because the superflow parser needs only new data, this wrapper always tells suricata, that an
+ * applayer parsed the data. This way only new data gets passed to this function.
+ * The applayer still requires getting old data as well. For that reason a buffer is filled with the
+ * data parsed from suricata until the applayer parser has parsed the data successfully.
+ *
+ * If the applayer parser is done parsing the superflow parser might still require data.
+ * For that reason suricata is told to pass data until the superflow parser is ready
+ * (all msg buffers are filled) and the applayer parser is done.
+ */
 int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
         TcpSession *ssn, uint8_t *data, uint32_t data_len, uint8_t flags) {
 
@@ -39,32 +75,37 @@ int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
 
     //return SuperflowDispatchAppLayer(dp_ctx, f, ssn, data, data_len, flags);
 
-
-
 	static uint32_t filtered_flow_flags = FLOW_NO_APPLAYER_INSPECTION;
 	static uint32_t filtered_tcpstream_flags = STREAMTCP_FLAG_APPPROTO_DETECTION_COMPLETED;
-    SCEnter();
 
     SuperflowState *sst = &f->superflow_state;
-    FlowBuffer *d;
+    FlowBuffer *flowBuffer;
+    // Write received buffer to internal buffer
+    // TODO: This can be skipped after the parser has parsed the data once.
     if (data_len > 0) {
 		if (flags & STREAM_TOSERVER) {
-			d = &sst->buffer_to_server;
+			flowBuffer = &sst->buffer_to_server;
 		} else {
-			d = &sst->buffer_to_client;
+			flowBuffer = &sst->buffer_to_client;
 		}
-		if (data_len > d->capacity - d->size) {
-			uint32_t size = d->size + data_len;
+		if (data_len > flowBuffer->capacity - flowBuffer->size) {
+			uint32_t size = flowBuffer->size + data_len;
 			//printf("Reallocating superflow buffer from %u to %u\n", d->capacity, size);
-			d->buffer = realloc(d->buffer, size);
-			d->capacity = size;
+			flowBuffer->buffer = realloc(flowBuffer->buffer, size);
+
+			if (!flowBuffer->buffer) {
+				printf("Realloc failed\n");
+				exit(-1);
+			}
+
+			flowBuffer->capacity = size;
 		}
 
-		memcpy(d->buffer + d->size, data, data_len);
-		d->size += data_len;
+		memcpy(flowBuffer->buffer + flowBuffer->size, data, data_len);
+		flowBuffer->size += data_len;
     }
 
-    // Restore flags
+    // Restore flags to build a consistent state when calling the applayer parser
     f->flags = (f->flags & ~filtered_flow_flags) | f->superflow_state.flow_flags;
     ssn->flags = (ssn->flags & ~filtered_tcpstream_flags) | f->superflow_state.tcpstream_flags;
     if (sst->tcpstream_flags & STREAMTCP_FLAG_APPPROTO_DETECTION_COMPLETED) {
@@ -74,34 +115,42 @@ int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
     }
 
     if (data_len == 0) {
-    	SuperflowDispatchAppLayer(dp_ctx, f, ssn, data, 0, flags);
     	if (flags & STREAM_EOF) {
+    		// Tell the superflow parser, that the stream has ended
     		MessageOnStreamEnd(p);
     	}
+    	// Dispatch the data to the default applayer parser
+    	SuperflowDispatchAppLayer(dp_ctx, f, ssn, data, 0, flags);
     } else {
+    	// Tell the superflow parser, that data arrived
     	MessageAdd(p, data, data_len, flags);
-    	SuperflowDispatchAppLayer(dp_ctx, f, ssn, d->buffer + d->posRead, d->size - d->posRead, flags);
+
+    	// Dispatch the data to the default applayer parser
+    	SuperflowDispatchAppLayer(dp_ctx, f, ssn, flowBuffer->buffer + flowBuffer->posRead, flowBuffer->size - flowBuffer->posRead, flags);
         if (ssn->flags & STREAMTCP_FLAG_APPPROTO_DETECTION_COMPLETED) {
-        	d->posRead = d->size;
+        	// The app layer parser has parsed the data.
+        	// That means we can drop the data in the buffer.
+        	flowBuffer->posRead = flowBuffer->size;
         }
     }
 
-    // set flags
+    // backup the flag state seen by the applayer parser
     sst->tcpstream_flags = ssn->flags & filtered_tcpstream_flags;
     sst->flow_flags = f->flags & filtered_flow_flags;
     f->flags &= ~filtered_flow_flags;
 
+    // set the flags seen by suricata
     if ((sst->flow_flags & FLOW_NO_APPLAYER_INSPECTION) && (sst->flags & SUPERFLOW_FLAG_MESSAGE_OVERFLOW)) {
     	f->flags |= FLOW_NO_APPLAYER_INSPECTION;
     }
-
     ssn->flags |= STREAMTCP_FLAG_APPPROTO_DETECTION_COMPLETED;
 
-    SCReturnInt(0);
+    return 0;
 }
 
-//#define PRINT
-
+/**
+ * This is the original AppLayerHandleTCPData from app-layer.c
+ */
 int SuperflowDispatchAppLayer(AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
         TcpSession *ssn, uint8_t *data, uint32_t data_len, uint8_t flags) {
     DEBUG_ASSERT_FLOW_LOCKED(f);
