@@ -468,7 +468,7 @@ pattern-matcher:
 # Defrag settings:
 
 defrag:
-  memcap: 32mb
+  memcap: 256mb
   hash-size: 65536
   trackers: 65535 # number of defragmented flows to follow
   max-frags: 65535 # number of fragments to keep (higher than trackers)
@@ -496,7 +496,7 @@ defrag:
 # in bytes.
 
 flow:
-  memcap: 32mb
+  memcap: 256mb
   hash-size: 65536
   prealloc: 10000
   emergency-recovery: 30
@@ -520,29 +520,29 @@ flow:
 flow-timeouts:
 
   default:
-    new: 30
-    established: 300
+    new: 5 #30
+    established: 10 #300
     closed: 0
-    emergency-new: 10
-    emergency-established: 100
+    emergency-new: 1 #10
+    emergency-established: 2 #100
     emergency-closed: 0
   tcp:
-    new: 60
-    established: 3600
-    closed: 120
-    emergency-new: 10
-    emergency-established: 300
+    new: 5 #60
+    established: 300 #3600
+    closed: 10 #120
+    emergency-new: 1 #10
+    emergency-established: 5 #300
     emergency-closed: 20
   udp:
-    new: 30
-    established: 300
-    emergency-new: 10
-    emergency-established: 100
+    new: 5 #30
+    established: 5 #300
+    emergency-new: 5# 10
+    emergency-established: 5# 100
   icmp:
-    new: 30
-    established: 300
-    emergency-new: 10
-    emergency-established: 100
+    new: 5 #30
+    established: 5 #300
+    emergency-new: 5 #10
+    emergency-established: 5 #100
 
 # Stream engine settings. Here the TCP stream tracking and reaasembly
 # engine is configured.
@@ -578,11 +578,12 @@ flow-timeouts:
 #                               # gb.  Just a number indicates it's in bytes.
 
 stream:
-  memcap: 32mb
+  memcap: 512mb
   checksum-validation: no      # reject wrong csums
   inline: yes                  # auto will use inline mode in IPS mode, yes or no set it statically
+  max-sessions: 2000000
   reassembly:
-    memcap: 64mb
+    memcap: 128mb
     depth: 1mb                  # reassemble 1mb into a stream
     toserver-chunk-size: 2560
     toclient-chunk-size: 2560
