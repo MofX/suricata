@@ -7,6 +7,9 @@
 #include "flow.h"
 #include "flow-util.h"
 
+#include "counters.h"
+#include "conf.h"
+
 #include "util-debug.h"
 #include "util-print.h"
 #include "util-profiling.h"
@@ -27,6 +30,18 @@ Superflow* SuperflowFromHeap();
 Superflow* SuperflowFromHash();
 void SuperflowAttachToFlow(Packet* packet);
 void SuperflowTouch(Superflow* sflow);
+
+SCPerfContext g_perfContext;
+SCPerfCounterArray *g_perfCounterArray;
+uint32_t g_perfId_superflow_drop, g_perfId_superflow_count = 0;
+
+uint32_t g_superflow_memory;
+uint32_t g_superflow_count;
+uint32_t s_superflow_memory_real;
+
+uint32_t g_superflow_message_timeout;
+uint32_t g_superflow_message_max_length;
+
 
 void SuperflowHandlePacket(Packet* p) {
 	if (!g_superflow_hashtable) return;
@@ -65,7 +80,9 @@ void SuperflowAttachToFlow(Packet* packet) {
 		}
 
 		if (sflow == NULL) {
-			printf("Warning: No free Superflow. Can't associate superflow to flow.\n");
+			SCPerfCounterIncr(g_perfId_superflow_drop, g_perfCounterArray);
+			SCPerfUpdateCounterArray(g_perfCounterArray, &g_perfContext, 0);
+			//printf("Warning: No free Superflow. Can't associate superflow to flow. : %u, %x\n", g_perfId_superflow_drop, g_perfCounterArray);
 			return;
 		}
 
@@ -92,14 +109,41 @@ void SuperflowInit(char silent) {
 		printf("Superflows is not NULL, SuperflowInit called twice?\n");
 		exit(-1);
 	}
-	if (!silent) {
-		printf("Allocating %u bytes of memory for %u superflows\n", SUPERFLOW_MEMORY_REAL, SUPERFLOW_COUNT);
+	g_superflow_memory = 1024;
+	g_superflow_message_timeout = 200;
+	g_superflow_message_max_length = 2048;
+
+	ConfNode *node = ConfGetRootNode();
+	node = ConfNodeLookupChild(node, "superflow");
+	if (node) {
+		ConfGetChildValueInt(node, "memory", &g_superflow_memory);
+		ConfGetChildValueInt(node, "message-timeout", &g_superflow_message_timeout);
+		ConfGetChildValueInt(node, "message-max-length", &g_superflow_message_max_length);
 	}
-	g_superflows = malloc(SUPERFLOW_MEMORY_REAL);
+
+	g_superflow_count = ((uint32_t)(g_superflow_memory / sizeof(Superflow)));
+	s_superflow_memory_real = g_superflow_count * sizeof(Superflow);
+
+
+	if (!silent) {
+		printf("Allocating %u bytes of memory for %u superflows\n", s_superflow_memory_real, g_superflow_count);
+	}
+	g_superflows = malloc(s_superflow_memory_real);
 	if (!g_superflows) {
 		printf("Allocating superflows failed\n");
 		exit(-1);
 	}
+
+	memset(&g_perfContext, 0, sizeof(SCPerfContext));
+
+	g_perfId_superflow_drop = SCPerfRegisterCounter("superflow.droped_sflows", "Superflow", SC_PERF_TYPE_UINT64, "Number of dropped superflows", &g_perfContext);
+	g_perfId_superflow_count = SCPerfRegisterCounter("superflow.num_sflows", "Superflow", SC_PERF_TYPE_UINT64, "Number of superflows", &g_perfContext);
+
+	SCPerfCounterDisplay(g_perfId_superflow_drop, &g_perfContext, 1);
+	SCPerfCounterDisplay(g_perfId_superflow_count, &g_perfContext, 1);
+
+	SCPerfAddToClubbedTMTable("Superflow", &g_perfContext);
+	g_perfCounterArray = SCPerfGetAllCountersArray(&g_perfContext);
 
 	g_superflow_hashtable = superflow_hash_new(g_superflows);
 }
@@ -115,9 +159,22 @@ void SuperflowFree() {
 
 	free(g_superflows);
 
+	SCPerfReleasePCA(g_perfCounterArray);
+	g_perfCounterArray = NULL;
+
+	SCPerfReleasePerfCounterS(g_perfContext.head);
+
 	g_superflows = NULL;
 	g_superflow_hashtable = NULL;
 	g_superflow_used_count = 0;
+
+	g_superflow_memory = 0;
+	g_superflow_message_timeout = 0;
+	g_superflow_message_max_length = 0;
+
+	g_superflow_memory = 0;
+	g_superflow_count = 0;
+	s_superflow_memory_real = 0;
 }
 
 void SuperflowInitFlow(Flow* flow) {
@@ -131,7 +188,7 @@ void SuperflowFreeFlow(Flow* flow) {
 	MessageSuperflowFinalize(&flow->superflow_state);
 	free(flow->superflow_state.buffer_to_client.buffer);
 	free(flow->superflow_state.buffer_to_server.buffer);
-	for (uint8_t i = 0; i < FLOW_MESSAGE_MAX_MESSAGES; ++i) {
+	for (uint8_t i = 0; i < SUPERFLOW_MESSAGE_COUNT; ++i) {
 		free(flow->superflow_state.messages.msgs[i].buffer);
 	}
 
@@ -146,7 +203,11 @@ void SuperflowRecycleFlow(Flow* flow) {
 }
 
 Superflow* SuperflowFromHeap() {
-	if (g_superflow_used_count == SUPERFLOW_COUNT) return NULL;
+	if (g_superflow_used_count == g_superflow_count) return NULL;
+
+	SCPerfCounterIncr(g_perfId_superflow_count, g_perfCounterArray);
+	SCPerfUpdateCounterArray(g_perfCounterArray, &g_perfContext, 0);
+
 	return &g_superflows[g_superflow_used_count++];
 }
 
@@ -231,7 +292,7 @@ int SuperflowTest02() {
 	p.flow = &f;
 	f.protoctx = &ssn;
 
-	for (uint32_t i = 0; i < FLOW_MESSAGE_MAX_MESSAGES; ++i) {
+	for (uint32_t i = 0; i < SUPERFLOW_MESSAGE_COUNT; ++i) {
 		uint8_t buffer[256];
 		sprintf(buffer, "%u", i);
 		uint8_t flags = 0;
@@ -248,8 +309,8 @@ int SuperflowTest02() {
 		SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, b, len, flags);
 	}
 
-	if (msgs->size != FLOW_MESSAGE_MAX_MESSAGES) {
-		printf("Expected %u message in use, but was: %u\n", FLOW_MESSAGE_MAX_MESSAGES, msgs->size);
+	if (msgs->size != SUPERFLOW_MESSAGE_COUNT) {
+		printf("Expected %u message in use, but was: %u\n", SUPERFLOW_MESSAGE_COUNT, msgs->size);
 		goto error;
 	}
 
@@ -258,7 +319,7 @@ int SuperflowTest02() {
 		goto error;
 	}
 
-	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, "x", 1, (FLOW_MESSAGE_MAX_MESSAGES % 2) ? STREAM_TOCLIENT : STREAM_TOSERVER);
+	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, "x", 1, (SUPERFLOW_MESSAGE_COUNT % 2) ? STREAM_TOCLIENT : STREAM_TOSERVER);
 
 	if (!(f.flags & FLOW_NO_APPLAYER_INSPECTION)) {
 		printf("FLOW_NO_APPLAYER_INSPECTION should be set\n");
@@ -442,11 +503,11 @@ int SuperflowTest05() {
 	SuperflowInit(1);
 	uint64_t i;
 
-	for (i = 0; i < SUPERFLOW_COUNT; ++i) {
+	for (i = 0; i < g_superflow_count; ++i) {
 		emmitPacket(i);
 	}
 
-	if (superflow_hash_count(g_superflow_hashtable) != SUPERFLOW_COUNT) {
+	if (superflow_hash_count(g_superflow_hashtable) != g_superflow_count) {
 		printf("Superflow count is not SUPERFLOW_COUNT\n");
 		goto error;
 	}
@@ -457,7 +518,7 @@ int SuperflowTest05() {
 		++count;
 	}
 
-	if (count != SUPERFLOW_COUNT) {
+	if (count != g_superflow_count) {
 		printf("count is not SUPERFLOW_COUNT\n");
 		goto error;
 	}
@@ -606,7 +667,7 @@ int SuperflowTest06() {
     	goto error;
     }
 
-    ts.tv_usec = (SUPERFLOW_MESSAGE_TIMEOUT + 1) * 1000;
+    ts.tv_usec = (g_superflow_message_timeout + 1) * 1000;
 
     p = emitTCPPacket("test2", 6, TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
     UTHFreePacket(p);

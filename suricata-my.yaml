@@ -965,3 +965,8 @@ profiling:
 
 coredump:
   max-dump: unlimited
+
+superflow:
+  memory: 1048576 # 1GB
+  message-timeout: 100 #ms
+  message-max-length: 2048 #Byte

@@ -21,7 +21,7 @@
 #include "work/message.h"
 
 FlowMessage* MessageGetCurrent(FlowMessages *sms) {
-	if (sms->size == 0 || sms->size == FLOW_MESSAGE_MAX_MESSAGES + 1) {
+	if (sms->size == 0 || sms->size == SUPERFLOW_MESSAGE_COUNT + 1) {
 		return NULL;
 	} else {
 		FlowMessage *cur = &sms->msgs[sms->size - 1];
@@ -32,7 +32,7 @@ FlowMessage* MessageGetCurrent(FlowMessages *sms) {
 
 FlowMessage* MessageGetNext(SuperflowState *sst) {
 	FlowMessages *sms = &sst->messages;
-	if (sms->size == FLOW_MESSAGE_MAX_MESSAGES + 1) {
+	if (sms->size == SUPERFLOW_MESSAGE_COUNT + 1) {
 		return NULL;
 	} else {
 		sms->size++;
@@ -96,7 +96,7 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 	const uint8_t dirflags = SUPERFLOW_MESSAGE_FLAG_TOCLIENT | SUPERFLOW_MESSAGE_FLAG_TOSERVER;
 	//printf("dirflags: %u, diff_ms: %u\n", (sm->flags & dirflags), diff_ms);
 	if ((sm->flags & dirflags) && (((sm->flags & dirflags) != (flags & dirflags))
-			|| (diff_ms > SUPERFLOW_MESSAGE_TIMEOUT) || (flags & STREAM_EOF))) {
+			|| (diff_ms > g_superflow_message_timeout) || (flags & STREAM_EOF))) {
 		//printf("New message\n");
 		MessageFinalize(sms, sm);
 		sm = MessageGetNext(sst);
@@ -116,8 +116,8 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 
 	if (sm->capacity - sm->size < data_len) {
 		uint32_t size = sm->size + data_len;
-		if (size > SUPERFLOW_MESSAGE_MAX_LENGTH) {
-			size = SUPERFLOW_MESSAGE_MAX_LENGTH;
+		if (size > g_superflow_message_max_length) {
+			size = g_superflow_message_max_length;
 			data_len = size - sm->size;
 			sm->flags |= SUPERFLOW_MESSAGE_FLAG_OVERLENGTH;
 		}
@@ -157,6 +157,7 @@ void MessageOnStreamEnd(Packet *p) {
 
 int MessageTest01() {
 	FlowInitConfig(1);
+	SuperflowInit(1);
 	Flow f;
 	FlowMessages *msgs = &f.superflow_state.messages;
 	Packet p;
@@ -172,7 +173,7 @@ int MessageTest01() {
 	MessageAdd(&p, "c", 1, STREAM_TOSERVER);
 	MessageAdd(&p, "defghi", 6, STREAM_TOSERVER);
 
-	p.ts.tv_usec = 1000 * (SUPERFLOW_MESSAGE_TIMEOUT + 5);
+	p.ts.tv_usec = 1000 * (g_superflow_message_timeout + 5);
 	MessageAdd(&p, "jkl", 3, STREAM_TOSERVER);
 	MessageAdd(&p, "a", 1, STREAM_TOSERVER);
 
@@ -226,30 +227,33 @@ int MessageTest01() {
 error:
 	r = -1;
 end:
+	SuperflowFree();
+	FlowShutdown();
 	return r;
 }
 
 int MessageTest02() {
 	FlowInitConfig(1);
+	SuperflowInit(1);
 	Flow f;
 	FlowMessages *msgs = &f.superflow_state.messages;
 	Packet p;
 	memset(&p, 0, sizeof(p));
 
 	FLOW_INITIALIZE(&f);
-	char buffer[SUPERFLOW_MESSAGE_MAX_LENGTH + 1];
+	char buffer[g_superflow_message_max_length + 1];
 
 	p.flow = &f;
 
-	MessageAdd(&p, buffer, SUPERFLOW_MESSAGE_MAX_LENGTH, STREAM_TOSERVER);
-	MessageAdd(&p, buffer, SUPERFLOW_MESSAGE_MAX_LENGTH + 1, STREAM_TOCLIENT);
+	MessageAdd(&p, buffer, g_superflow_message_max_length, STREAM_TOSERVER);
+	MessageAdd(&p, buffer, g_superflow_message_max_length + 1, STREAM_TOCLIENT);
 
-	if (msgs->msgs[0].size != SUPERFLOW_MESSAGE_MAX_LENGTH || (msgs->msgs[0].flags & SUPERFLOW_MESSAGE_FLAG_OVERLENGTH)) {
+	if (msgs->msgs[0].size != g_superflow_message_max_length || (msgs->msgs[0].flags & SUPERFLOW_MESSAGE_FLAG_OVERLENGTH)) {
 		printf("Message one has wrong length or overlength flag set\n");
 		goto error;
 	}
 
-	if (msgs->msgs[1].size != SUPERFLOW_MESSAGE_MAX_LENGTH || !(msgs->msgs[1].flags & SUPERFLOW_MESSAGE_FLAG_OVERLENGTH)) {
+	if (msgs->msgs[1].size != g_superflow_message_max_length || !(msgs->msgs[1].flags & SUPERFLOW_MESSAGE_FLAG_OVERLENGTH)) {
 		printf("Message two has wrong length or overlength flag not set\n");
 		goto error;
 	}
@@ -264,11 +268,14 @@ int MessageTest02() {
 error:
 	r = -1;
 end:
+	SuperflowFree();
+	FlowShutdown();
 	return r;
 }
 
 int MessageTest03() {
 	FlowInitConfig(1);
+	SuperflowInit(1);
 	Flow f;
 	FlowMessages *msgs = &f.superflow_state.messages;
 	Packet p;
@@ -278,13 +285,13 @@ int MessageTest03() {
 
 	p.flow = &f;
 
-	for (uint8_t i = 0; i < FLOW_MESSAGE_MAX_MESSAGES + 1; ++i) {
+	for (uint8_t i = 0; i < SUPERFLOW_MESSAGE_COUNT + 1; ++i) {
 		char buffer[20];
 		sprintf(buffer, "%u", i);
 		MessageAdd(&p, buffer, 1, i % 2 ? STREAM_TOSERVER : STREAM_TOCLIENT);
 	}
 
-	for (uint8_t i = 0; i < FLOW_MESSAGE_MAX_MESSAGES; ++i) {
+	for (uint8_t i = 0; i < SUPERFLOW_MESSAGE_COUNT; ++i) {
 		char buffer[10];
 		sprintf(buffer, "%u", i);
 
@@ -306,12 +313,14 @@ error:
 end:
 	FLOW_DESTROY(&f);
 	FlowShutdown();
+	SuperflowFree();
 	return r;
 }
 
 int MessageTest04() {
 	uint32_t x[1024];
 	FlowInitConfig(1);
+	SuperflowInit(1);
 	Packet p;
 	Flow f;
 	FlowMessages *msgs = &f.superflow_state.messages;
@@ -323,15 +332,15 @@ int MessageTest04() {
 
 	MessageAdd(&p, "1", 1, STREAM_TOSERVER);
 
-	p.ts.tv_usec += 1000 * (SUPERFLOW_MESSAGE_TIMEOUT - 1);
+	p.ts.tv_usec += 1000 * (g_superflow_message_timeout - 1);
 
 	MessageAdd(&p, "2", 1, STREAM_TOSERVER);
 
-	p.ts.tv_usec += 1000 * (SUPERFLOW_MESSAGE_TIMEOUT - 1);
+	p.ts.tv_usec += 1000 * (g_superflow_message_timeout - 1);
 
 	MessageAdd(&p, "3", 1, STREAM_TOSERVER);
 
-	p.ts.tv_usec += 1000 * (SUPERFLOW_MESSAGE_TIMEOUT);
+	p.ts.tv_usec += 1000 * (g_superflow_message_timeout);
 
 	MessageAdd(&p, "4", 1, STREAM_TOSERVER);
 
@@ -348,6 +357,7 @@ end:
 	r = 0;
 	FLOW_DESTROY(&f);
 	FlowShutdown();
+	SuperflowFree();
 	return r;
 }
 

@@ -3,12 +3,7 @@
 
 #include "superflow-hash.h"
 
-#define FLOW_MESSAGE_MAX_MESSAGES 10
-#define SUPERFLOW_MESSAGE_TIMEOUT 200
-#define SUPERFLOW_MESSAGE_MAX_LENGTH 2048
-
 #define SUPERFLOW_MESSAGE_COUNT 8
-#define SUPERFLOW_MEMORY 1024 * 1024 * 1
 
 #define SUPERFLOW_MESSAGE_FLAG_OVERLENGTH 		1 << 0
 #define SUPERFLOW_MESSAGE_FLAG_INUSE			1 << 1
@@ -18,8 +13,13 @@
 
 #define SUPERFLOW_FLAG_MESSAGE_OVERFLOW			0x01
 
-#define SUPERFLOW_COUNT ((int)(SUPERFLOW_MEMORY / sizeof(Superflow)))
-#define SUPERFLOW_MEMORY_REAL SUPERFLOW_COUNT * sizeof(Superflow)
+
+extern uint32_t g_superflow_message_timeout;
+extern uint32_t g_superflow_message_max_length;
+
+extern uint32_t g_superflow_count;
+extern uint32_t s_superflow_memory_real;
+extern uint32_t g_superflow_memory;
 
 typedef struct SuperflowMessage_ {
 	uint32_t time;
@@ -65,7 +65,7 @@ typedef struct FlowMessage_ {
 } FlowMessage;
 
 typedef struct FlowMessages_ {
-	FlowMessage msgs[FLOW_MESSAGE_MAX_MESSAGES];
+	FlowMessage msgs[SUPERFLOW_MESSAGE_COUNT];
 	uint8_t	size;
 } FlowMessages;
 
