@@ -1,2 +1,4 @@
 #alert ip any any -> any any (msg:"Entropy rule 0.5"; flow:established; entropy:0.5; sid:1234; rev:1;)
 #alert ip any any -> any any (msg:"Entropy rule 0.9"; flow:established; entropy:0.9; sid:1235; rev:1;)
+alert ip any any -> any any (msg:"Superflow rule l>1024"; flow:established; superflow:l>1024; sid:1236; rev:1;)
+alert ip any any -> any any (msg:"Superflow rule l>2048;e>0.5"; flow:established; superflow:l>1024;e>0.5; sid:1237; rev:1;)

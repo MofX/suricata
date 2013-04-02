@@ -72,9 +72,9 @@ typedef struct Superflow_ {
  */
 typedef struct FlowBuffer_ {
 	uint8_t		*buffer;
-	uint16_t 	capacity;
-	uint16_t 	size;
-	uint16_t 	posRead;
+	uint32_t 	capacity;
+	uint32_t 	size;
+	uint32_t 	posRead;
 } FlowBuffer;
 
 /**

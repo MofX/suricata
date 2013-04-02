@@ -89,6 +89,7 @@ int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
 			flowBuffer = &sst->buffer_to_client;
 		}
 		if (data_len > (uint16_t)(flowBuffer->capacity - flowBuffer->size)) {
+			// TODO: Stop filling the buffer after a specified number of bytes
 			uint32_t size = flowBuffer->size + data_len;
 			//printf("Reallocating superflow buffer from %u to %u\n", d->capacity, size);
 			flowBuffer->buffer = realloc(flowBuffer->buffer, size);
@@ -126,6 +127,25 @@ int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
     	MessageAdd(p, data, data_len, flags);
 
     	// Dispatch the data to the default applayer parser
+    	char * b = flowBuffer->buffer + flowBuffer->posRead;
+    	int size = flowBuffer->size - flowBuffer->posRead;
+
+    	if (flowBuffer->posRead < 0) {
+    		printf("Posread is less than zero\n");
+    		exit(-1);
+    	}
+
+    	if (b >= flowBuffer->buffer + flowBuffer->capacity) {
+    		printf("Current buffer position is beyond it's capacity, %d, %llx > %llx\n", size, b, flowBuffer->buffer + flowBuffer->capacity);
+    		exit(-1);
+    	}
+
+    	if (b + size > flowBuffer->buffer + flowBuffer->capacity) {
+    		printf("Buffer end is beyond it's capacity, %x, %llx > %llx\n", size, b, flowBuffer->buffer + flowBuffer->capacity);
+    		exit(-1);
+    	}
+
+
     	SuperflowDispatchAppLayer(dp_ctx, f, ssn, flowBuffer->buffer + flowBuffer->posRead, flowBuffer->size - flowBuffer->posRead, flags);
         if (ssn->flags & STREAMTCP_FLAG_APPPROTO_DETECTION_COMPLETED) {
         	// The app layer parser has parsed the data.
