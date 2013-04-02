@@ -149,6 +149,7 @@
 #include "detect-uniquebytes.h"
 #include "detect-payloadlenfield.h"
 #include "detect-experimental.h"
+#include "work/detect-superflow.h"
 
 
 #include "util-rule-vars.h"
@@ -4793,6 +4794,7 @@ void SigTableSetup(void) {
     DetectUniqueBytesRegister();
     DetectPayloadLenFieldRegister();
     DetectExperimentalRegister();
+    DetectSuperflowRegister();
 
     uint8_t i = 0;
     for (i = 0; i < DETECT_TBLSIZE; i++) {
