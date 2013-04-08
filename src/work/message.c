@@ -168,7 +168,7 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 	}
 
 	if (!bytes_to_write) return;
-
+	//printf("Copying %d chars\n", bytes_to_write);
 	memcpy(sm->buffer + sm->size, data, bytes_to_write);
 	sm->size += bytes_to_write;
 }
@@ -417,8 +417,10 @@ end:
 }
 
 void MessageRegisterTests() {
+#ifndef SUPERFLOW_DEACTIVATE
 	UtRegisterTest("MessageTest1", MessageTest01, 0);
 	UtRegisterTest("MessageTest2", MessageTest02, 0);
 	UtRegisterTest("MessageTest3", MessageTest03, 0);
 	UtRegisterTest("MessageTest4", MessageTest04, 0);
+#endif
 }

@@ -52,6 +52,9 @@ typedef struct DetectSuperflowData_ {
 } DetectSuperflowData;
 
 void DetectSuperflowRegister(void) {
+#ifdef SUPERFLOW_DEACTIVATE
+	return;
+#endif
     sigmatch_table[DETECT_SUPERFLOW].name = "superflow";
     sigmatch_table[DETECT_SUPERFLOW].Match = DetectSuperflowMatch;
     sigmatch_table[DETECT_SUPERFLOW].Setup = DetectSuperflowSetup;
@@ -162,7 +165,7 @@ error:
 }
 
 static int DetectSuperflowSetup (DetectEngineCtx * ctx, Signature * s, char * str) {
-	printf("Setup\n");
+	//printf("Setup\n");
 	DetectSuperflowData *ed = NULL;
 	SigMatch *sm = NULL;
 
@@ -206,10 +209,10 @@ int DetectSuperflowMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
 
 		if (!(sflow->messageCount > i && (sflow_msg->flags & SUPERFLOW_MESSAGE_FLAG_INUSE))) return 0;
 
-		printf("Msg %d: %d / %0.2f got(valid: %d) %d / %f\n",
+		/*printf("Msg %d: %d / %0.2f got(valid: %d) %d / %f\n",
 				i, msg->length, msg->entropy,
 				sflow->messageCount > i && (sflow_msg->flags & SUPERFLOW_MESSAGE_FLAG_INUSE),
-				sflow_msg->length, SuperflowGetEntropy(sflow_msg));
+				sflow_msg->length, SuperflowGetEntropy(sflow_msg));*/
 
 		if (msg->entropy >= 0) {
 			float entropy = SuperflowGetEntropy(sflow_msg);
@@ -251,7 +254,7 @@ void DetectSuperflowFree (void * ptr) {
 
 #ifdef UNITTESTS
 
-static int ParsetTest1() {
+static int ParseTest1() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
@@ -270,7 +273,7 @@ error:
 	return -1;
 }
 
-static int ParsetTest2() {
+static int ParseTest2() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
@@ -289,7 +292,7 @@ error:
 	return -1;
 }
 
-static int ParsetTest3() {
+static int ParseTest3() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
@@ -308,7 +311,7 @@ error:
 	return -1;
 }
 
-static int ParsetTest4() {
+static int ParseTest4() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
@@ -334,7 +337,7 @@ error:
 	return -1;
 }
 
-static int ParsetTest5() {
+static int ParseTest5() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
@@ -358,7 +361,7 @@ error:
 	return -1;
 }
 
-static int ParsetTest6() {
+static int ParseTest6() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	char buffer[1024];
@@ -558,13 +561,15 @@ end:
 
 void DetectSuperflowRegisterTests(void) {
 #ifdef UNITTESTS
-	UtRegisterTest("DetectSuperflowParseTest1", ParsetTest1, 1);
-	UtRegisterTest("DetectSuperflowParseTest2", ParsetTest2, 1);
-	UtRegisterTest("DetectSuperflowParseTest3", ParsetTest3, 1);
-	UtRegisterTest("DetectSuperflowParseTest4", ParsetTest4, 1);
-	UtRegisterTest("DetectSuperflowParseTest5", ParsetTest5, 1);
-	UtRegisterTest("DetectSuperflowParseTest6", ParsetTest6, 1);
+	UtRegisterTest("DetectSuperflowParseTest1", ParseTest1, 1);
+	UtRegisterTest("DetectSuperflowParseTest2", ParseTest2, 1);
+	UtRegisterTest("DetectSuperflowParseTest3", ParseTest3, 1);
+	UtRegisterTest("DetectSuperflowParseTest4", ParseTest4, 1);
+	UtRegisterTest("DetectSuperflowParseTest5", ParseTest5, 1);
+	UtRegisterTest("DetectSuperflowParseTest6", ParseTest6, 1);
+#ifndef SUPERFLOW_DEACTIVATE
 	UtRegisterTest("DetectSuperflowTest1", Test1, 1);
+#endif
 	//UtRegisterTest("DetectSuperflowTest2", EntropyTest2, 0);
 	//UtRegisterTest("DetectSuperflowTest3", EntropyTest3, 1);
 	//UtRegisterTest("DetectSuperflowTest4", EntropyTest4, 1);

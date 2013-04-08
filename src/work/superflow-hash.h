@@ -110,7 +110,7 @@ typedef struct UT_hash_table_ {
     * the hash will still work, albeit no longer in constant time. */
    unsigned ineff_expands, noexpand;
 
-   unsigned hashv;                   /* result of hash-fcn(key)        */
+   //unsigned hashv;                   /* result of hash-fcn(key)        */
 
    uint32_t signature; /* used only to find hash tables in external analysis */
 #ifdef HASH_BLOOM

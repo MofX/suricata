@@ -68,7 +68,7 @@ outputs:
 
   # alert output for use with Barnyard2
   - unified2-alert:
-      enabled: yes
+      enabled: no
       filename: unified2.alert
 
       # File size limit.  Can be specified in kb, mb, gb.  Just a number
@@ -584,7 +584,7 @@ stream:
   max-sessions: 2000000
   reassembly:
     memcap: 128mb
-    depth: 1mb                  # reassemble 1mb into a stream
+    depth: 2mb                  # reassemble 1mb into a stream
     toserver-chunk-size: 2560
     toclient-chunk-size: 2560
 
@@ -721,7 +721,7 @@ default-rule-path: rules
 rule-files:
 # - decoder-events.rules # available in suricata sources under rules dir
 # - stream-events.rules  # available in suricata sources under rules dir
- - http-events.rules    # available in suricata sources under rules dir
+# - http-events.rules    # available in suricata sources under rules dir
 # - smtp-events.rules    # available in suricata sources under rules dir
  - entropy.rules
 

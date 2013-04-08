@@ -9,6 +9,8 @@
 
 #include "superflow-hash.h"
 
+//#define SUPERFLOW_DEACTIVATE
+
 // The Maximum number of messages in superflow and flow
 #define SUPERFLOW_MESSAGE_COUNT 8
 

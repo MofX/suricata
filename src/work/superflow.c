@@ -27,6 +27,8 @@
 #include "work/superflow-applayer-wrapper.h"
 #include "work/message.h"
 
+#include <pcap.h>
+
 Superflow *g_superflows = NULL;
 struct UT_hash_table_ *g_superflow_hashtable = NULL;;
 uint32_t g_superflow_used_count = 0;
@@ -138,6 +140,9 @@ float SuperflowGetEntropy(struct SuperflowMessage_ *sfm) {
  * Initializes the superflow parser.
  */
 void SuperflowInit(char silent) {
+#ifdef SUPERFLOW_DEACTIVATE
+	return;
+#endif
 	if (g_superflows) {
 		printf("Superflows is not NULL, SuperflowInit called twice?\n");
 		exit(-1);
@@ -195,6 +200,9 @@ void SuperflowInit(char silent) {
  * Frees all resources used by the superflow parser
  */
 void SuperflowFree() {
+#ifdef SUPERFLOW_DEACTIVATE
+	return;
+#endif
 	Superflow *sflow = NULL;
 
 	// Free the hashmap
@@ -228,6 +236,9 @@ void SuperflowFree() {
  * Called when suricata initializes a flow to do superflow specific setup
  */
 void SuperflowInitFlow(Flow* flow) {
+#ifdef SUPERFLOW_DEACTIVATE
+	return;
+#endif
 	memset(&flow->superflow_state, 0, sizeof(SuperflowState));
 	//printf("Init flow: %llx, %u\n", flow, flow->superflow_state.messages.msgs[0].capacity);
 }
@@ -238,6 +249,9 @@ void SuperflowInitFlow(Flow* flow) {
  * the associated superflow
  */
 void SuperflowFreeFlow(Flow* flow) {
+#ifdef SUPERFLOW_DEACTIVATE
+	return;
+#endif
 	//printf("Free flow: %llx\n", flow);
 
 	MessageSuperflowFinalize(&flow->superflow_state);
@@ -256,6 +270,9 @@ void SuperflowFreeFlow(Flow* flow) {
  * Called when suricata recycles a flow.
  */
 void SuperflowRecycleFlow(Flow* flow) {
+#ifdef SUPERFLOW_DEACTIVATE
+	return;
+#endif
 	SuperflowFreeFlow(flow);
 	SuperflowInitFlow(flow);
 }
@@ -326,9 +343,15 @@ int SuperflowTest01() {
 	p.flow = &f;
 
 	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, (uint8_t*)"a", 1, STREAM_START | STREAM_TOSERVER);
+	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, (uint8_t*)"b", 1, STREAM_TOSERVER);
 
 	if (msgs->size != 1) {
 		printf("Expected one message in use\n");
+		goto error;
+	}
+
+	if (memcmp("ab", msgs->msgs[0].buffer, 2) != 0) {
+		printf("Message buffer doesn't contain \"ab\": \"%s\"\n", msgs->msgs[0].buffer);
 		goto error;
 	}
 
@@ -440,7 +463,7 @@ int SuperflowTest03() {
 
 	uint8_t buffer[g_superflow_message_max_length*2];
 
-
+	ssn.flags |= STREAMTCP_FLAG_APPPROTO_DETECTION_COMPLETED;
 	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, g_superflow_message_max_length, STREAM_START | STREAM_TOSERVER);
 	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, g_superflow_message_max_length, STREAM_TOSERVER);
 	SuperflowHandleTCPData(&p, &dp_ctx, &f, &ssn, buffer, g_superflow_message_max_length, STREAM_TOSERVER);
@@ -664,6 +687,8 @@ Packet * emitTCPPacket(char* data, uint32_t data_len, uint8_t flags, char* src, 
 						uint32_t * seq, uint32_t * ack, struct timeval ts, ThreadVars *tv,
 					    StreamTcpThread *stt, PacketQueue *pq) {
     Packet *p = UTHBuildPacketReal((uint8_t*) data, data_len, IPPROTO_TCP, src, dst, srcport, dstport);
+    p->ip4h->ip_verhl = 0x45; //(20 << 3) + 4;
+    p->tcph->th_offx2 = 0x50;
     p->ts = ts;
     p->tcph->th_flags = flags;
     p->tcph->th_seq = htonl(*seq);
@@ -876,7 +901,7 @@ int SuperflowTest07() {
 
     char buffer[256];
     for (uint32_t i = 0; i < 256; ++i) {
-    	buffer[i] = 0;
+    	buffer[i] = 'a';
     }
 
     p = emitTCPPacket(buffer, 256, TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
@@ -1020,7 +1045,492 @@ end:
 }
 
 
+/**
+ * This tests tests the superflow parser with actual packets. It does correct handshakes for
+ * connection setup and teardown.
+ * A bigger amount of data is send after establishing (>4096 bytes)
+ */
+int SuperflowTest08() {
+	FlowInitConfig(1);
+	AlpProtoDetectThreadCtx dp_ctx;
+	AlpProtoFinalize2Thread(&dp_ctx);
+	SuperflowInit(1);
+	StreamTcpInitConfig(1);
+
+    ThreadVars tv;
+    StreamTcpThread stt;
+    PacketQueue pq;
+    TcpReassemblyThreadCtx ra_ctx;
+    StreamMsgQueue stream_q;
+    memset(&pq,0,sizeof(PacketQueue));
+    memset(&stt, 0, sizeof (StreamTcpThread));
+    memset(&ra_ctx, 0, sizeof(TcpReassemblyThreadCtx));
+    memset(&stream_q, 0, sizeof(StreamMsgQueue));
+
+    ra_ctx.stream_q = &stream_q;
+    stt.ra_ctx = &ra_ctx;
+
+    uint32_t seq_to_server = 100;
+    uint32_t seq_to_client = 300;
+	uint16_t client_port = 54854;
+	uint16_t server_port = 90;
+
+    Flow *f = NULL;
+    TcpSession *ssn = NULL;
+    Packet *p = NULL;
+    Flow *f2 = NULL;
+    TcpSession *ssn2 = NULL;
+    struct timeval ts;
+    ts.tv_sec = 0;
+    ts.tv_usec = 0;
+
+	p = emitTCPPacket("", 0, TH_SYN, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    f = p->flow;
+    FlowIncrUsecnt(f);
+    ssn = (TcpSession *)f->protoctx;
+    UTHFreePacket(p);
+
+    if (ssn->state != TCP_SYN_SENT) {
+    	printf("Connection not in state TCP_SYN_SENT\n");
+    	goto error;
+    }
+
+    p = emitTCPPacket("", 0, TH_SYN | TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn->state != TCP_SYN_RECV) {
+		printf("Connection not in state TCP_SYN_RECV\n");
+		goto error;
+	}
+
+    p = emitTCPPacket("", 0, TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn->state != TCP_ESTABLISHED) {
+    	printf("Connection not in state TCP_ESTABLISHED\n");
+    	goto error;
+    }
+
+    char buffer[4096];
+    for (uint32_t i = 0; i < 4000; ++i) {
+    	buffer[i] = 'a';
+    }
+
+    p = emitTCPPacket(buffer, 4000, TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+    p = emitTCPPacket("", 0, TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    p = emitTCPPacket(buffer, 4000, TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+    p = emitTCPPacket("", 0, TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    p = emitTCPPacket("", 0, TH_FIN, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn->state != TCP_FIN_WAIT1) {
+    	printf("Connection not in state TCP_FIN_WAIT1\n");
+    	goto error;
+    }
+
+    p = emitTCPPacket("", 0, TH_FIN | TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn->state != TCP_TIME_WAIT) {
+    	printf("Connection not in state TCP_TIME_WAIT\n");
+    	goto error;
+    }
+
+    p = emitTCPPacket("", 0, TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn->state != TCP_CLOSED) {
+    	printf("Connection not in state TCP_CLOSED\n");
+    	goto error;
+    }
+
+    if (f->superflow_state.superflow->messageCount != 1) {
+    	printf("Superflow message count is not one: %u\n", f->superflow_state.superflow->messageCount);
+    	goto error;
+    }
+
+    if (f->superflow_state.superflow->msgs[0].length != 2048) {
+    	printf("Superflow msgs[0] length is not 2048: %u\n", f->superflow_state.superflow->msgs[0].length);
+    	goto error;
+    }
+
+    client_port = 1234;
+
+    p = emitTCPPacket("", 0, TH_SYN, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    f2 = p->flow;
+    FlowIncrUsecnt(f2);
+    ssn2 = (TcpSession *)f2->protoctx;
+    UTHFreePacket(p);
+
+    if (f == f2) {
+    	printf("Flow f shouldn't be the same as f2\n");
+    	goto error;
+    }
+
+    if (ssn2->state != TCP_SYN_SENT) {
+    	printf("Connection not in state TCP_SYN_SENT\n");
+    	goto error;
+    }
+
+    p = emitTCPPacket("", 0, TH_SYN | TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn2->state != TCP_SYN_RECV) {
+		printf("Connection not in state TCP_SYN_RECV\n");
+		goto error;
+	}
+
+    p = emitTCPPacket("", 0, TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn2->state != TCP_ESTABLISHED) {
+    	printf("Connection not in state TCP_ESTABLISHED\n");
+    	goto error;
+    }
+
+    for (uint32_t i = 0; i < 4096; ++i) {
+    	buffer[i] = 'b';
+    }
+
+    p = emitTCPPacket(buffer, 3000, TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+    p = emitTCPPacket("", 0, TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    p = emitTCPPacket("", 0, TH_FIN, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn2->state != TCP_FIN_WAIT1) {
+    	printf("Connection not in state TCP_FIN_WAIT1\n");
+    	goto error;
+    }
+
+    p = emitTCPPacket("", 0, TH_FIN | TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn2->state != TCP_TIME_WAIT) {
+    	printf("Connection not in state TCP_TIME_WAIT\n");
+    	goto error;
+    }
+
+    p = emitTCPPacket("", 0, TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn2->state != TCP_CLOSED) {
+    	printf("Connection not in state TCP_CLOSED\n");
+    	goto error;
+    }
+
+    if (f->superflow_state.superflow->messageCount != 2) {
+    	printf("Superflow message count is not two: %u\n", f->superflow_state.superflow->messageCount);
+    	goto error;
+    }
+
+    if (f->superflow_state.superflow->msgs[1].length != 2048) {
+    	printf("Superflow msgs[1] length is not 2048: %u\n", f->superflow_state.superflow->msgs[1].length);
+    	goto error;
+    }
+
+	int r = 0;
+	goto end;
+error:
+	r = -1;
+end:
+	if (f) FlowDecrUsecnt(f);
+	if (f2) FlowDecrUsecnt(f2);
+	FlowShutdown();
+	SuperflowFree();
+	AlpProtoDeFinalize2Thread(&dp_ctx);
+	StreamTcpFreeConfig(TRUE);
+	return r;
+}
+
+/**
+ * This tests tests the superflow parser with actual packets. It does correct handshakes for
+ * connection setup and teardown.
+ * A bigger amount of data is send after establishing
+ */
+int SuperflowTest09() {
+	FlowInitConfig(1);
+	AlpProtoDetectThreadCtx dp_ctx;
+	AlpProtoFinalize2Thread(&dp_ctx);
+	SuperflowInit(1);
+	StreamTcpInitConfig(1);
+
+    ThreadVars tv;
+    StreamTcpThread stt;
+    PacketQueue pq;
+    TcpReassemblyThreadCtx ra_ctx;
+    StreamMsgQueue stream_q;
+    memset(&pq,0,sizeof(PacketQueue));
+    memset(&stt, 0, sizeof (StreamTcpThread));
+    memset(&ra_ctx, 0, sizeof(TcpReassemblyThreadCtx));
+    memset(&stream_q, 0, sizeof(StreamMsgQueue));
+
+    ra_ctx.stream_q = &stream_q;
+    stt.ra_ctx = &ra_ctx;
+
+    uint32_t seq_to_server = 100;
+    uint32_t seq_to_client = 300;
+	uint16_t client_port = 54854;
+	uint16_t server_port = 90;
+
+    Flow *f = NULL;
+    TcpSession *ssn = NULL;
+    Packet *p = NULL;
+    Flow *f2 = NULL;
+    TcpSession *ssn2 = NULL;
+    struct timeval ts;
+    ts.tv_sec = 0;
+    ts.tv_usec = 0;
+
+#ifdef WRITE_PCAP
+    FILE *fi = fopen("packet.pcap", "wb");
+    struct pcap_file_header fhdr;
+    fhdr.magic = 0xa1b2c3d4;
+    fhdr.version_major = 2;
+    fhdr.version_minor = 0;
+    fhdr.thiszone = 0;
+    fhdr.sigfigs = 0;
+    fhdr.snaplen = 65535;
+    fhdr.linktype = 228;
+    fwrite((void*)&fhdr, sizeof(fhdr),1, fi);
+
+    struct pcap_pkthdr {
+    	uint32_t tss;
+    	uint32_t tsus;
+    	bpf_u_int32 caplen;	/* length of portion present */
+    	bpf_u_int32 len;	/* length this packet (off wire) */
+    };
+    struct pcap_pkthdr hdr;
+
+	hdr.tss = 0;
+	hdr.tsus = 0;
+#endif
+
+	p = emitTCPPacket("", 0, TH_SYN, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+#ifdef WRITE_PCAP
+	hdr.len = hdr.caplen = p->pktlen;
+	fwrite((void*)&hdr, sizeof(hdr), 1, fi);
+	fwrite(p->pkt, p->pktlen, 1, fi);
+#endif
+    f = p->flow;
+    FlowIncrUsecnt(f);
+    ssn = (TcpSession *)f->protoctx;
+    UTHFreePacket(p);
+
+    if (ssn->state != TCP_SYN_SENT) {
+    	printf("Connection not in state TCP_SYN_SENT\n");
+    	goto error;
+    }
+
+    p = emitTCPPacket("", 0, TH_SYN | TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+#ifdef WRITE_PCAP
+	hdr.len = hdr.caplen = p->pktlen;
+	fwrite((void*)&hdr, sizeof(hdr), 1, fi);
+	fwrite(p->pkt, p->pktlen, 1, fi);
+#endif
+    UTHFreePacket(p);
+
+    if (ssn->state != TCP_SYN_RECV) {
+		printf("Connection not in state TCP_SYN_RECV\n");
+		goto error;
+	}
+
+    p = emitTCPPacket("", 0, TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+#ifdef WRITE_PCAP
+	hdr.len = hdr.caplen = p->pktlen;
+	fwrite((void*)&hdr, sizeof(hdr), 1, fi);
+	fwrite(p->pkt, p->pktlen, 1, fi);
+#endif
+    UTHFreePacket(p);
+
+    if (ssn->state != TCP_ESTABLISHED) {
+    	printf("Connection not in state TCP_ESTABLISHED\n");
+    	goto error;
+    }
+
+    char buffer[8000];
+    for (uint32_t i = 0; i < 4000; ++i) {
+    	buffer[i] = 'a';
+    	buffer[4000 + i] = 'b';
+    }
+
+    for (int i = 0; i < 100; i++) {
+#ifdef WRITE_PCAP
+    	hdr.tss = i;
+    	hdr.tsus = 100;
+#endif
+    	buffer[0] = i + '0';
+    	buffer[1999] = i + 'A';
+		p = emitTCPPacket(buffer, 2000, TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+#ifdef WRITE_PCAP
+		hdr.len = hdr.caplen = p->pktlen;
+		fwrite((void*)&hdr, sizeof(hdr), 1, fi);
+		fwrite(p->pkt, p->pktlen, 1, fi);
+#endif
+		UTHFreePacket(p);
+		p = emitTCPPacket("", 0, TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+#ifdef WRITE_PCAP
+		hdr.len = hdr.caplen = p->pktlen;
+		fwrite((void*)&hdr, sizeof(hdr), 1, fi);
+		fwrite(p->pkt, p->pktlen, 1, fi);
+#endif
+		UTHFreePacket(p);
+
+//		p = emitTCPPacket(buffer + 2000, 1000, TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+//#ifdef WRITE_PCAP
+//		hdr.len = hdr.caplen = p->pktlen;
+//		fwrite((void*)&hdr, sizeof(hdr), 1, fi);
+//		fwrite(p->pkt, p->pktlen, 1, fi);
+//#endif
+//		UTHFreePacket(p);
+//		p = emitTCPPacket("", 0, TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+//#ifdef WRITE_PCAP
+//		hdr.len = hdr.caplen = p->pktlen;
+//		fwrite((void*)&hdr, sizeof(hdr), 1, fi);
+//		fwrite(p->pkt, p->pktlen, 1, fi);
+//#endif
+//		UTHFreePacket(p);
+    }
+#ifdef WRITE_PCAP
+    fclose(fi);
+#endif
+
+    p = emitTCPPacket("", 0, TH_FIN, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn->state != TCP_FIN_WAIT1) {
+    	printf("Connection not in state TCP_FIN_WAIT1: %u\n", ssn->state);
+    	goto error;
+    }
+
+    p = emitTCPPacket("", 0, TH_FIN | TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn->state != TCP_TIME_WAIT) {
+    	printf("Connection not in state TCP_TIME_WAIT\n");
+    	goto error;
+    }
+
+    p = emitTCPPacket("", 0, TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn->state != TCP_CLOSED) {
+    	printf("Connection not in state TCP_CLOSED\n");
+    	goto error;
+    }
+
+    if (f->superflow_state.superflow->messageCount != 1) {
+    	printf("Superflow message count is not one: %u\n", f->superflow_state.superflow->messageCount);
+    	goto error;
+    }
+
+    if (f->superflow_state.superflow->msgs[0].length != 2048) {
+    	printf("Superflow msgs[0] length is not 2048: %u\n", f->superflow_state.superflow->msgs[0].length);
+    	goto error;
+    }
+
+    client_port = 1234;
+
+    p = emitTCPPacket("", 0, TH_SYN, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    f2 = p->flow;
+    FlowIncrUsecnt(f2);
+    ssn2 = (TcpSession *)f2->protoctx;
+    UTHFreePacket(p);
+
+    if (f == f2) {
+    	printf("Flow f shouldn't be the same as f2\n");
+    	goto error;
+    }
+
+    if (ssn2->state != TCP_SYN_SENT) {
+    	printf("Connection not in state TCP_SYN_SENT\n");
+    	goto error;
+    }
+
+    p = emitTCPPacket("", 0, TH_SYN | TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn2->state != TCP_SYN_RECV) {
+		printf("Connection not in state TCP_SYN_RECV\n");
+		goto error;
+	}
+
+    p = emitTCPPacket("", 0, TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn2->state != TCP_ESTABLISHED) {
+    	printf("Connection not in state TCP_ESTABLISHED\n");
+    	goto error;
+    }
+
+    for (uint32_t i = 0; i < 4096; ++i) {
+    	buffer[i] = 'b';
+    }
+
+    p = emitTCPPacket(buffer, 3000, TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+    p = emitTCPPacket("", 0, TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    p = emitTCPPacket("", 0, TH_FIN, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn2->state != TCP_FIN_WAIT1) {
+    	printf("Connection not in state TCP_FIN_WAIT1\n");
+    	goto error;
+    }
+
+    p = emitTCPPacket("", 0, TH_FIN | TH_ACK, "45.12.45.78", "54.54.65.85", client_port, server_port, &seq_to_server, &seq_to_client, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn2->state != TCP_TIME_WAIT) {
+    	printf("Connection not in state TCP_TIME_WAIT\n");
+    	goto error;
+    }
+
+    p = emitTCPPacket("", 0, TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
+    UTHFreePacket(p);
+
+    if (ssn2->state != TCP_CLOSED) {
+    	printf("Connection not in state TCP_CLOSED\n");
+    	goto error;
+    }
+
+    if (f->superflow_state.superflow->messageCount != 2) {
+    	printf("Superflow message count is not two: %u\n", f->superflow_state.superflow->messageCount);
+    	goto error;
+    }
+
+    if (f->superflow_state.superflow->msgs[1].length != 2048) {
+    	printf("Superflow msgs[1] length is not 2048: %u\n", f->superflow_state.superflow->msgs[1].length);
+    	goto error;
+    }
+
+	int r = 0;
+	goto end;
+error:
+	r = -1;
+end:
+	if (f) FlowDecrUsecnt(f);
+	if (f2) FlowDecrUsecnt(f2);
+	FlowShutdown();
+	SuperflowFree();
+	AlpProtoDeFinalize2Thread(&dp_ctx);
+	StreamTcpFreeConfig(TRUE);
+	return r;
+}
+
+
 void SuperflowRegisterTests() {
+#ifndef SUPERFLOW_DEACTIVATE
 	UtRegisterTest("SuperflowTest1", SuperflowTest01, 0);
 	UtRegisterTest("SuperflowTest2", SuperflowTest02, 0);
 	UtRegisterTest("SuperflowTest3", SuperflowTest03, 0);
@@ -1028,4 +1538,7 @@ void SuperflowRegisterTests() {
 	UtRegisterTest("SuperflowTest5", SuperflowTest05, 0);
 	UtRegisterTest("SuperflowTest6", SuperflowTest06, 0);
 	UtRegisterTest("SuperflowTest7", SuperflowTest07, 0);
+	UtRegisterTest("SuperflowTest8", SuperflowTest08, 0);
+	UtRegisterTest("SuperflowTest9", SuperflowTest09, 0);
+#endif
 }

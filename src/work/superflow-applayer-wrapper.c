@@ -73,7 +73,9 @@ int SuperflowHandleTCPData(Packet *p, AlpProtoDetectThreadCtx *dp_ctx, Flow *f,
     }
 #endif
 
-    //return SuperflowDispatchAppLayer(dp_ctx, f, ssn, data, data_len, flags);
+#ifdef SUPERFLOW_DEACTIVATE
+    return SuperflowDispatchAppLayer(dp_ctx, f, ssn, data, data_len, flags);
+#endif
 
 	static uint32_t filtered_flow_flags = FLOW_NO_APPLAYER_INSPECTION;
 	static uint32_t filtered_tcpstream_flags = STREAMTCP_FLAG_APPPROTO_DETECTION_COMPLETED;
