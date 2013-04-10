@@ -39,8 +39,8 @@
 #include "superflow.h"
 #include "superflow-hash.h"
 
-typedef struct UT_hash_table_ UT_hash_table;
-typedef struct UT_hash_bucket_ UT_hash_bucket;
+//typedef struct UT_hash_table_ UT_hash_table;
+//typedef struct UT_hash_bucket_ UT_hash_bucket;
 
 /**
  * Converts an index to a pointer to superflow
