@@ -200,6 +200,8 @@ void MessageOnStreamEnd(Packet *p) {
 	}
 }
 
+#ifdef UNITTESTS
+
 /**
  * Test basic AddMessage
  */
@@ -415,12 +417,15 @@ end:
 	SuperflowFree();
 	return r;
 }
+#endif
 
 void MessageRegisterTests() {
+#ifdef UNITTESTS
 #ifndef SUPERFLOW_DEACTIVATE
 	UtRegisterTest("MessageTest1", MessageTest01, 0);
 	UtRegisterTest("MessageTest2", MessageTest02, 0);
 	UtRegisterTest("MessageTest3", MessageTest03, 0);
 	UtRegisterTest("MessageTest4", MessageTest04, 0);
+#endif
 #endif
 }

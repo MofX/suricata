@@ -324,6 +324,7 @@ SuperflowMessage * SuperflowGetNextMessage(SuperflowState * sfs) {
 	}
 }
 
+#ifdef UNITTESTS
 /**
  * This test simply tries to add some data to the flow message buffer and checks  it.
  */
@@ -1527,9 +1528,10 @@ end:
 	StreamTcpFreeConfig(TRUE);
 	return r;
 }
-
+#endif
 
 void SuperflowRegisterTests() {
+#ifdef UNITTESTS
 #ifndef SUPERFLOW_DEACTIVATE
 	UtRegisterTest("SuperflowTest1", SuperflowTest01, 0);
 	UtRegisterTest("SuperflowTest2", SuperflowTest02, 0);
@@ -1540,5 +1542,6 @@ void SuperflowRegisterTests() {
 	UtRegisterTest("SuperflowTest7", SuperflowTest07, 0);
 	UtRegisterTest("SuperflowTest8", SuperflowTest08, 0);
 	UtRegisterTest("SuperflowTest9", SuperflowTest09, 0);
+#endif
 #endif
 }

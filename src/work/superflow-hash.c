@@ -446,6 +446,7 @@ Superflow* superflow_hash_next( UT_hash_table *tbl, Superflow* current )
 	return NULL;
 }
 
+#ifdef UNITTESTS
 /**
  * Tests creation of the hashmap
  */
@@ -693,11 +694,14 @@ end:
 	superflow_hash_free(tbl);
 	return r;
 }
+#endif
 
 void SuperflowHashRegisterTests() {
+#ifdef UNITTESTS
 	UtRegisterTest("SuperflowHashTest1", SuperflowHashTest01, 0);
 	UtRegisterTest("SuperflowHashTest2", SuperflowHashTest02, 0);
 	UtRegisterTest("SuperflowHashTest3", SuperflowHashTest03, 0);
 	UtRegisterTest("SuperflowHashTest4", SuperflowHashTest04, 0);
 	UtRegisterTest("SuperflowHashTest5", SuperflowHashTest05, 0);
+#endif
 }
