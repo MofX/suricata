@@ -9,7 +9,7 @@
 
 #include "superflow-hash.h"
 
-#define SUPERFLOW_DEACTIVATE
+//#define SUPERFLOW_DEACTIVATE
 
 // The Maximum number of messages in superflow and flow
 #define SUPERFLOW_MESSAGE_COUNT 8
@@ -61,7 +61,8 @@ union SuperflowKey_ {
 typedef struct Superflow_ {
 	union SuperflowKey_ addrs;	// The key (the source and destination addresses)
 
-	uint16_t refCount;			// The reference count
+	//uint16_t refCount;			// The reference count
+	SC_ATOMIC_DECLARE(uint16_t, refCount);
 	uint16_t messageCount;		// The number of messages recorded already (may be a uint8_t)
 
 	struct SuperflowMessage_ msgs[SUPERFLOW_MESSAGE_COUNT];  // The messages of the superflow

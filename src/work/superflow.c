@@ -123,7 +123,8 @@ void SuperflowAttachToFlow(Packet* packet) {
 	}
 
 	// The superflow is now in use so increment the refcount
-	++sflow->refCount;
+	SC_ATOMIC_ADD(sflow->refCount, 1);
+	//++sflow->refCount;
 
 	// Assign the superflow to the superflow_state struct
 	flow->superflow_state.superflow = sflow;
@@ -262,7 +263,8 @@ void SuperflowFreeFlow(Flow* flow) {
 	}
 
 	if (flow->superflow_state.superflow) {
-		--flow->superflow_state.superflow->refCount;
+		SC_ATOMIC_SUB(flow->superflow_state.superflow->refCount, 1);
+		//--flow->superflow_state.superflow->refCount;
 	}
 }
 
@@ -299,7 +301,7 @@ Superflow* SuperflowFromHash() {
 	Superflow* sflow = superflow_hash_get_head(g_superflow_hashtable);
 	if (!sflow) return NULL;
 
-	while (sflow != NULL && sflow->refCount > 0) {
+	while (sflow != NULL && SC_ATOMIC_GET(sflow->refCount) > 0) {
 		sflow = superflow_hash_next(g_superflow_hashtable, sflow);
 	}
 
@@ -515,7 +517,7 @@ int SuperflowTest04() {
 		goto error;
 	}
 
-	if (f->superflow_state.superflow->refCount != 1) {
+	if (SC_ATOMIC_GET(f->superflow_state.superflow->refCount) != 1) {
 		printf("Superflow refcount must be 1\n");
 		goto error;
 	}
@@ -548,13 +550,13 @@ int SuperflowTest04() {
 	}
 
 	Superflow *sflow = superflow_hash_get_head(g_superflow_hashtable);
-	if (sflow->refCount != 1) {
-		printf("Refcount of first superflow is not 1, %u\n", sflow->refCount);
+	if (SC_ATOMIC_GET(sflow->refCount) != 1) {
+		printf("Refcount of first superflow is not 1, %u\n", SC_ATOMIC_GET(sflow->refCount));
 		goto error;
 	}
 
 	sflow = superflow_hash_next(g_superflow_hashtable, sflow);
-	if (sflow->refCount != 2) {
+	if (SC_ATOMIC_GET(sflow->refCount) != 2) {
 		printf("Refcount of second superflow is not 1\n");
 		goto error;
 	}
@@ -644,7 +646,8 @@ int SuperflowTest05() {
 	}
 
 	sflow_head = superflow_hash_get_head(g_superflow_hashtable);
-	++sflow_head->refCount;
+	//++sflow_head->refCount;
+	SC_ATOMIC_ADD(sflow_head->refCount, 1);
 	sflow_head = superflow_hash_next(g_superflow_hashtable, sflow_head);
 	sflow = emmitPacket(i++);
 
@@ -654,9 +657,11 @@ int SuperflowTest05() {
 	}
 
 	sflow = superflow_hash_get_head(g_superflow_hashtable);
-	sflow->refCount++;
+	//sflow->refCount++;
+	SC_ATOMIC_ADD(sflow->refCount, 1);
 	while ((sflow = superflow_hash_next(g_superflow_hashtable, sflow))) {
-		sflow->refCount++;
+		SC_ATOMIC_ADD(sflow->refCount, 1);
+		//sflow->refCount++;
 	}
 
 	sflow = emmitPacket(i++);
