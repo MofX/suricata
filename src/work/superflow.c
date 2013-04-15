@@ -11,6 +11,7 @@
 #include "stream-tcp-private.h"
 #include "flow.h"
 #include "flow-util.h"
+#include "threads.h"
 
 #include "counters.h"
 #include "conf.h"
@@ -49,6 +50,7 @@ uint32_t s_superflow_memory_real;
 uint32_t g_superflow_message_timeout;
 uint32_t g_superflow_message_max_length;
 
+SCMutex g_superflow_mutex;
 
 /**
  * Called by FlowHandlePacekt in flow.c
@@ -56,10 +58,11 @@ uint32_t g_superflow_message_max_length;
  * if there is one associated, it just touches it (see SuperflowTouch).
  */
 void SuperflowHandlePacket(Packet* p) {
-	if (!g_superflow_hashtable) return;
-	if (!p->flow) return;
+	SCMutexLock(&g_superflow_mutex);
+	if (!g_superflow_hashtable) goto end;
+	if (!p->flow) goto end;
 
-	if (!FLOW_IS_IPV4(p->flow)) return;
+	if (!FLOW_IS_IPV4(p->flow)) goto end;
 
 
 	if (!p->flow->superflow_state.superflow) {
@@ -67,6 +70,9 @@ void SuperflowHandlePacket(Packet* p) {
 	} else {
 		SuperflowTouch(p->flow->superflow_state.superflow);
 	}
+
+end:
+	SCMutexUnlock(&g_superflow_mutex);
 }
 
 /**
@@ -152,6 +158,7 @@ void SuperflowInit(char silent) {
 	g_superflow_memory = 1024;
 	g_superflow_message_timeout = 200;
 	g_superflow_message_max_length = 2048;
+	SCMutexInit(&g_superflow_mutex, NULL);
 
 	ConfNode *node = ConfGetRootNode();
 	node = ConfNodeLookupChild(node, "superflow");
@@ -208,6 +215,7 @@ void SuperflowFree() {
 
 	// Free the hashmap
 	while ((sflow = superflow_hash_get_head(g_superflow_hashtable))) {
+		FLOWLOCK_DESTROY(sflow);
 		superflow_hash_del(g_superflow_hashtable, sflow);
 	}
 	superflow_hash_free(g_superflow_hashtable);
@@ -289,7 +297,11 @@ Superflow* SuperflowFromHeap() {
 	SCPerfCounterIncr(g_perfId_superflow_count, g_perfCounterArray);
 	SCPerfUpdateCounterArray(g_perfCounterArray, &g_perfContext, 0);
 
-	return &g_superflows[g_superflow_used_count++];
+	Superflow *new_sflow = &g_superflows[g_superflow_used_count++];
+
+	FLOWLOCK_INIT(new_sflow);
+
+	return new_sflow;
 }
 
 /**
@@ -318,12 +330,17 @@ Superflow* SuperflowFromHash() {
 SuperflowMessage * SuperflowGetNextMessage(SuperflowState * sfs) {
 	Superflow * sflow = sfs->superflow;
 	if (!sflow) return NULL;
+	FLOWLOCK_WRLOCK(sflow);
 
-	if (sflow->messageCount == SUPERFLOW_MESSAGE_COUNT) {
-		return NULL;
-	} else {
-		return &sflow->msgs[sflow->messageCount++];
+	SuperflowMessage * res = NULL;
+
+	if (sflow->messageCount != SUPERFLOW_MESSAGE_COUNT) {
+		res = &sflow->msgs[sflow->messageCount++];
 	}
+
+end:
+	FLOWLOCK_UNLOCK(sflow);
+	return res;
 }
 
 #ifdef UNITTESTS

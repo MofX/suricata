@@ -34,6 +34,8 @@ extern uint32_t s_superflow_memory_real;
 // The maximum memory allowed for reserved superflows
 extern uint32_t g_superflow_memory;
 
+extern SCMutex g_superflow_mutex;
+
 /**
  * One message in the superflow
  */
@@ -68,6 +70,8 @@ typedef struct Superflow_ {
 	struct SuperflowMessage_ msgs[SUPERFLOW_MESSAGE_COUNT];  // The messages of the superflow
 
 	struct UT_hash_handle_ hh;	// The handled used for the hashmap
+
+	SCMutex m;					// The mutex
 } Superflow;
 
 /**

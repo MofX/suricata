@@ -201,13 +201,15 @@ int DetectSuperflowMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
 
 	Superflow *sflow = p->flow->superflow_state.superflow;
 
+	FLOWLOCK_RDLOCK(sflow);
+
 	//printf("Checking %d msgs\n", sd->count);
 
 	for (int i = 0; i < sd->count; ++i) {
 		DetectSuperflowDataMsg *msg = &sd->msgs[i];
 		SuperflowMessage *sflow_msg = &sflow->msgs[i];
 
-		if (!(sflow->messageCount > i && (sflow_msg->flags & SUPERFLOW_MESSAGE_FLAG_INUSE))) return 0;
+		if (!(sflow->messageCount > i && (sflow_msg->flags & SUPERFLOW_MESSAGE_FLAG_INUSE))) goto error;
 
 		/*printf("Msg %d: %d / %0.2f got(valid: %d) %d / %f\n",
 				i, msg->length, msg->entropy,
@@ -218,13 +220,13 @@ int DetectSuperflowMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
 			float entropy = SuperflowGetEntropy(sflow_msg);
 			switch (msg->entropy_op) {
 			case OP_EQ:
-				if (msg->entropy != entropy) return 0;
+				if (msg->entropy != entropy) goto error;
 				break;
 			case OP_LT:
-				if (msg->entropy < entropy) return 0;
+				if (msg->entropy < entropy) goto error;
 				break;
 			case OP_GT:
-				if (msg->entropy > entropy) return 0;
+				if (msg->entropy > entropy) goto error;
 				break;
 			}
 		}
@@ -232,19 +234,25 @@ int DetectSuperflowMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
 		if (msg->length >= 0) {
 			switch (msg->length_op) {
 			case OP_EQ:
-				if (msg->length != sflow_msg->length) return 0;
+				if (msg->length != sflow_msg->length) goto error;
 				break;
 			case OP_LT:
-				if (msg->length < sflow_msg->length) return 0;
+				if (msg->length < sflow_msg->length) goto error;
 				break;
 			case OP_GT:
-				if (msg->length > sflow_msg->length) return 0;
+				if (msg->length > sflow_msg->length) goto error;
 				break;
 			}
 		}
 	}
 
-	return 1;
+	int res = 1;
+	goto end;
+error:
+	res = 0;
+end:
+	FLOWLOCK_UNLOCK(sflow);
+	return res;
 }
 
 void DetectSuperflowFree (void * ptr) {
