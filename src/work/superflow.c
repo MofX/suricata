@@ -156,6 +156,7 @@ void SuperflowInit(char silent) {
 #ifdef SUPERFLOW_DEACTIVATE
 	return;
 #endif
+
 	if (g_superflows) {
 		printf("Superflows is not NULL, SuperflowInit called twice?\n");
 		exit(-1);
@@ -1557,7 +1558,6 @@ end:
 	StreamTcpFreeConfig(TRUE);
 	return r;
 }
-#endif
 
 int SuperflowTest10() {
 	FlowInitConfig(1);
@@ -1644,6 +1644,8 @@ end:
 	StreamTcpFreeConfig(TRUE);
 	return r;
 }
+
+#endif
 
 void SuperflowRegisterTests() {
 #ifdef UNITTESTS
