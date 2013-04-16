@@ -161,7 +161,7 @@ error:
  * \retval Packet pointer to the built in packet
  */
 Packet *UTHBuildPacketReal(uint8_t *payload, uint16_t payload_len,
-                           uint16_t ipproto, char *src, char *dst,
+                           uint16_t ipproto, const char *src, const char *dst,
                            uint16_t sport, uint16_t dport) {
     struct in_addr in;
 
@@ -208,8 +208,8 @@ Packet *UTHBuildPacketReal(uint8_t *payload, uint16_t payload_len,
             if (p->udph == NULL)
                 goto error;
 
-            p->udph->uh_sport = sport;
-            p->udph->uh_dport = dport;
+            p->udph->uh_sport = htons(sport);
+            p->udph->uh_dport = htons(dport);
             hdr_offset += sizeof(UDPHdr);
             break;
         case IPPROTO_TCP:
