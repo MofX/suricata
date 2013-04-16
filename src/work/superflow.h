@@ -20,6 +20,9 @@
 #define SUPERFLOW_MESSAGE_FLAG_TOCLIENT			1 << 3		// Message is from server
 #define SUPERFLOW_MESSAGE_FLAG_FINALIZED		1 << 4		// Message is finalized
 
+#define SUPERFLOW_FLAG_UDP 	1 << 0
+#define SUPERFLOW_FLAG_TCP 	2 << 0
+
 #define SUPERFLOW_FLAG_MESSAGE_OVERFLOW			0x01
 
 // Timeout of messages in ms
@@ -49,13 +52,14 @@ typedef struct SuperflowMessage_ {
 /**
  * Struct defining the key for use in the hash
  */
-union SuperflowKey_ {
+typedef union SuperflowKey_ {
 	struct {
 		uint32_t srvr;
 		uint32_t clnt;
+		uint8_t type;
 	};
-	uint64_t key;
-};
+	uint8_t key[5];
+} SuperflowKey;
 
 /**
  * Superflow

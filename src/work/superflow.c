@@ -61,14 +61,19 @@ void SuperflowHandlePacket(Packet* p) {
 	SCMutexLock(&g_superflow_mutex);
 	if (!g_superflow_hashtable) goto end;
 	if (!p->flow) goto end;
-
 	if (!FLOW_IS_IPV4(p->flow)) goto end;
+	if (!PKT_IS_TCP(p) && !PKT_IS_UDP(p)) goto end;
 
 
 	if (!p->flow->superflow_state.superflow) {
 		SuperflowAttachToFlow(p);
 	} else {
 		SuperflowTouch(p->flow->superflow_state.superflow);
+	}
+
+	if (PKT_IS_UDP(p) && p->flow) {
+		MessageAdd(p, p->payload, p->payload_len,
+				(PKT_IS_TOSERVER(p) ? STREAM_TOSERVER : STREAM_TOCLIENT));
 	}
 
 end:
@@ -95,6 +100,7 @@ void SuperflowAttachToFlow(Packet* packet) {
 	// The key is build from the source and destination address
 	key.srvr = flow->dst.address.address_un_data32[0];
 	key.clnt = flow->src.address.address_un_data32[0];
+	key.type = PKT_IS_TCP(packet) ? SUPERFLOW_FLAG_UDP : SUPERFLOW_FLAG_TCP;
 
 	Superflow* sflow = NULL;
 
@@ -120,7 +126,7 @@ void SuperflowAttachToFlow(Packet* packet) {
 
 		// Reset superflow
 		memset(sflow, 0, sizeof(Superflow));
-		sflow->addrs.key = key.key;
+		sflow->addrs = key;
 		// Add it to the hashtable
 		superflow_hash_add(g_superflow_hashtable, sflow);
 	} else {
@@ -600,7 +606,8 @@ end:
  */
 Superflow* emmitPacket(uint64_t i) {
 	union SuperflowKey_ key;
-	key.key = i;
+	key.srvr = i >> 32;
+	key.clnt = i;
 
 	Packet p;
 	memset(&p, 0, sizeof(Packet));
@@ -1552,6 +1559,92 @@ end:
 }
 #endif
 
+int SuperflowTest10() {
+	FlowInitConfig(1);
+	AlpProtoDetectThreadCtx dp_ctx;
+	AlpProtoFinalize2Thread(&dp_ctx);
+	SuperflowInit(1);
+	StreamTcpInitConfig(1);
+
+	char* src = "1.2.3.4";
+	char* dest = "4.3.2.1";
+	uint16_t sport = 10;
+	uint16_t dport = 1;
+
+	uint8_t buffer[1024];
+
+	Packet *p_udp = UTHBuildPacketReal(buffer, 0, IPPROTO_UDP, src, dest, sport, dport);
+	FlowHandlePacket(NULL, p_udp);
+
+	strcpy((char*)buffer, "Hello ");
+	p_udp = UTHBuildPacketReal(buffer, 6, IPPROTO_UDP, src, dest, sport, dport);
+	FlowHandlePacket(NULL, p_udp);
+	UTHFreePacket(p_udp);
+
+	strcpy((char*)buffer, "world!");
+	p_udp = UTHBuildPacketReal(buffer, 7, IPPROTO_UDP, src, dest, sport, dport);
+	FlowHandlePacket(NULL, p_udp);
+	UTHFreePacket(p_udp);
+
+	strcpy((char*)buffer, "foobar");
+	p_udp = UTHBuildPacketReal(buffer, 7, IPPROTO_UDP, dest, src, dport, sport);
+	FlowHandlePacket(NULL, p_udp);
+
+	Packet *p_tcp = UTHBuildPacketReal(buffer, 0, IPPROTO_TCP, src, dest, sport, dport);
+
+
+	FlowHandlePacket(NULL, p_tcp);
+
+	if (!p_udp->flow) {
+		printf("UDP has now flow attached\n");
+		goto error;
+	}
+
+	if (p_udp->flow->superflow_state.superflow == p_tcp->flow->superflow_state.superflow) {
+		printf("UDP and TCP flows shouldn't use the same superflow!\n");
+		goto error;
+	}
+
+	if (p_udp->flow->superflow_state.messages.size != 2) {
+		printf("UDP does not contain 2 messages: %u\n", p_udp->flow->superflow_state.messages.size);
+		goto error;
+	}
+
+	if (p_udp->flow->superflow_state.messages.msgs[0].size != 13) {
+		printf("UDP message[0] is not 13 chars long: %u\n", p_udp->flow->superflow_state.messages.msgs[0].size);
+		goto error;
+	}
+
+	if (strcmp((char*)(p_udp->flow->superflow_state.messages.msgs[0].buffer), "Hello world!") != 0) {
+		printf("Msgs[0] is not \"Hello world!\" : %s\n", p_udp->flow->superflow_state.messages.msgs[0].buffer);
+		goto error;
+	}
+
+	if (p_udp->flow->superflow_state.messages.msgs[1].size != 7) {
+		printf("UDP message[1] is not 7 chars long: %u\n", p_udp->flow->superflow_state.messages.msgs[1].size);
+		goto error;
+	}
+
+	if (strcmp((char*)(p_udp->flow->superflow_state.messages.msgs[1].buffer), "foobar") != 0) {
+		printf("Msgs[1] is not \"foobar\" : %s\n", p_udp->flow->superflow_state.messages.msgs[1].buffer);
+		goto error;
+	}
+
+	int r = 0;
+	goto end;
+error:
+	r = -1;
+end:
+	UTHFreePacket(p_udp);
+	UTHFreePacket(p_tcp);
+
+	FlowShutdown();
+	SuperflowFree();
+	AlpProtoDeFinalize2Thread(&dp_ctx);
+	StreamTcpFreeConfig(TRUE);
+	return r;
+}
+
 void SuperflowRegisterTests() {
 #ifdef UNITTESTS
 #ifndef SUPERFLOW_DEACTIVATE
@@ -1564,6 +1657,7 @@ void SuperflowRegisterTests() {
 	UtRegisterTest("SuperflowTest7", SuperflowTest07, 0);
 	UtRegisterTest("SuperflowTest8", SuperflowTest08, 0);
 	UtRegisterTest("SuperflowTest9", SuperflowTest09, 0);
+	UtRegisterTest("SuperflowTest10", SuperflowTest10, 0);
 #endif
 #endif
 }

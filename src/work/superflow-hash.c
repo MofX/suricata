@@ -484,7 +484,8 @@ int SuperflowHashTest02() {
 	Superflow sflows[10];
 
 	for (unsigned int i = 0; i < 10; ++i) {
-		sflows[i].addrs.key = i;
+		memset(&sflows[i].addrs.key, 0, sizeof(SuperflowKey));
+		memcpy(&sflows[i].addrs.key, &i, sizeof(unsigned int));
 	}
 
 	tbl = superflow_hash_new(sflows);
@@ -555,7 +556,8 @@ int SuperflowHashTest03() {
 	Superflow sflows[10];
 
 	for (unsigned int i = 0; i < 10; ++i) {
-		sflows[i].addrs.key = i;
+		memset(&sflows[i].addrs.key, 0, sizeof(SuperflowKey));
+		memcpy(&sflows[i].addrs.key, &i, sizeof(unsigned int));
 	}
 
 	tbl = superflow_hash_new(sflows);
@@ -626,7 +628,8 @@ int SuperflowHashTest04() {
 	Superflow sflows[10];
 
 	for (unsigned int i = 0; i < 10; ++i) {
-		sflows[i].addrs.key = i;
+		memset(&sflows[i].addrs.key, 0, sizeof(SuperflowKey));
+		memcpy(&sflows[i].addrs.key, &i, sizeof(unsigned int));
 	}
 
 	tbl = superflow_hash_new(sflows);

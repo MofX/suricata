@@ -120,12 +120,15 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 	timersub(&p->ts, &sm->last_update, &diff);
 	uint32_t diff_ms = diff.tv_usec / 1000 + diff.tv_sec * 1000;
 	const uint8_t dirflags = SUPERFLOW_MESSAGE_FLAG_TOCLIENT | SUPERFLOW_MESSAGE_FLAG_TOSERVER;
-	//printf("dirflags: %u, diff_ms: %u\n", (sm->flags & dirflags), diff_ms);
+//	printf("dirflags: %u, diff_ms: %u, cond 1: %u, cond 2: %u\n", (sm->flags & dirflags), diff_ms,
+//			(sm->flags & dirflags) && (sm->flags & dirflags) != (flags & dirflags),
+//			(sm->flags & dirflags) && (diff_ms > g_superflow_message_timeout));
 
 	// Check if direction flag is set (no new message) and if direction differs from current direction
 	// or if message timed out.
 	if ((sm->flags & dirflags) && (((sm->flags & dirflags) != (flags & dirflags))
 			|| (diff_ms > g_superflow_message_timeout) || (flags & STREAM_EOF))) {
+		//printf("New message\n");
 		// Finalize and get next message
 		MessageFinalize(sms, sm);
 		sm = MessageGetNext(sst);
@@ -141,6 +144,7 @@ void MessageAdd(Packet *p, uint8_t * data, uint32_t data_len, uint8_t flags) {
 	if (!(sm->flags & dirflags)) {
 		sm->flags |= flags & dirflags;
 		sm->first_update = p->ts;
+		sm->last_update = p->ts;
 	}
 	if (!data_len) return;
 
