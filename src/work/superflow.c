@@ -41,7 +41,7 @@ void SuperflowTouch(Superflow* sflow);
 
 SCPerfContext g_perfContext;
 SCPerfCounterArray *g_perfCounterArray;
-uint32_t g_perfId_superflow_drop, g_perfId_superflow_count = 0;
+uint32_t g_perfId_superflow_drop = 0, g_perfId_superflow_count = 0, g_perfId_superflow_search = 0;
 
 uint32_t g_superflow_memory;
 uint32_t g_superflow_count;
@@ -203,9 +203,11 @@ void SuperflowInit(char silent) {
 
 	g_perfId_superflow_drop = SCPerfRegisterCounter("superflow.droped_sflows", "Superflow", SC_PERF_TYPE_UINT64, "Number of dropped superflows", &g_perfContext);
 	g_perfId_superflow_count = SCPerfRegisterCounter("superflow.num_sflows", "Superflow", SC_PERF_TYPE_UINT64, "Number of superflows", &g_perfContext);
+	g_perfId_superflow_search = SCPerfRegisterAvgCounter("superflow.search", "Superflow", SC_PERF_TYPE_UINT64, "Average search costs", &g_perfContext);
 
 	SCPerfCounterDisplay(g_perfId_superflow_drop, &g_perfContext, 1);
 	SCPerfCounterDisplay(g_perfId_superflow_count, &g_perfContext, 1);
+	SCPerfCounterDisplay(g_perfId_superflow_search, &g_perfContext, 1);
 
 	SCPerfAddToClubbedTMTable("Superflow", &g_perfContext);
 	g_perfCounterArray = SCPerfGetAllCountersArray(&g_perfContext);
@@ -320,9 +322,14 @@ Superflow* SuperflowFromHash() {
 	Superflow* sflow = superflow_hash_get_head(g_superflow_hashtable);
 	if (!sflow) return NULL;
 
+	uint64_t count = 0;
+
 	while (sflow != NULL && SC_ATOMIC_GET(sflow->refCount) > 0) {
 		sflow = superflow_hash_next(g_superflow_hashtable, sflow);
+		count++;
 	}
+
+	SCPerfCounterSetUI64(g_perfId_superflow_search, g_perfCounterArray, count);
 
 	if (sflow) {
 		superflow_hash_del(g_superflow_hashtable, sflow);
