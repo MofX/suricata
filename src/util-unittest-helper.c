@@ -880,9 +880,9 @@ int CheckUTHTestPacket(Packet *p, uint16_t ipproto) {
         case IPPROTO_UDP:
             if (p->udph == NULL)
                 return 0;
-            if (p->udph->uh_sport != sport)
+            if (ntohs(p->udph->uh_sport) != sport)
                 return 0;
-            if (p->udph->uh_dport != dport)
+            if (ntohs(p->udph->uh_dport) != dport)
                 return 0;
         break;
         case IPPROTO_TCP:
