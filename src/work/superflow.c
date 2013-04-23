@@ -30,14 +30,22 @@
 
 #include <pcap.h>
 
+#define SUPERFLOW_NUM_HASHMAPS 4
+
+typedef struct SuperflowHashMap_ {
+	struct UT_hash_table_ *htbl;
+	SCMutex mutex;
+} SuperflowHashMap;
+
+SuperflowHashMap g_superflow_maps[SUPERFLOW_NUM_HASHMAPS];
+
 Superflow *g_superflows = NULL;
-struct UT_hash_table_ *g_superflow_hashtable = NULL;;
 uint32_t g_superflow_used_count = 0;
 
 Superflow* SuperflowFromHeap();
-Superflow* SuperflowFromHash();
-void SuperflowAttachToFlow(Packet* packet);
-void SuperflowTouch(Superflow* sflow);
+Superflow* SuperflowFromHash(SuperflowHashMap *map);
+void SuperflowAttachToFlow(SuperflowHashMap *map, Packet* packet);
+void SuperflowTouch(SuperflowHashMap *map, Superflow* sflow);
 
 SCPerfContext g_perfContext;
 SCPerfCounterArray *g_perfCounterArray;
@@ -52,23 +60,31 @@ uint32_t g_superflow_message_max_length;
 
 SCMutex g_superflow_mutex;
 
+SuperflowHashMap* SuperflowGetMap(uint32_t src, uint32_t dst) {
+	return &g_superflow_maps[(src + dst) % SUPERFLOW_NUM_HASHMAPS];
+}
+
 /**
  * Called by FlowHandlePacekt in flow.c
  * This function associates a superflow with a flow or
  * if there is one associated, it just touches it (see SuperflowTouch).
  */
 void SuperflowHandlePacket(Packet* p) {
-	SCMutexLock(&g_superflow_mutex);
-	if (!g_superflow_hashtable) goto end;
+	//SCMutexLock(&g_superflow_mutex);
+	//if (!g_superflow_hashtable) goto end;
 	if (!p->flow) goto end;
 	if (!FLOW_IS_IPV4(p->flow)) goto end;
 	if (!PKT_IS_TCP(p) && !PKT_IS_UDP(p)) goto end;
 
+	SuperflowHashMap *map = SuperflowGetMap(p->src.address.address_un_data32[0], p->dst.address.address_un_data32[0]);
+	if (!map->htbl) goto end;
+	SCMutexLock(&map->mutex);
+
 
 	if (!p->flow->superflow_state.superflow) {
-		SuperflowAttachToFlow(p);
+		SuperflowAttachToFlow(map, p);
 	} else {
-		SuperflowTouch(p->flow->superflow_state.superflow);
+		SuperflowTouch(map, p->flow->superflow_state.superflow);
 	}
 
 	if (PKT_IS_UDP(p) && p->flow) {
@@ -76,16 +92,19 @@ void SuperflowHandlePacket(Packet* p) {
 				(PKT_IS_TOSERVER(p) ? STREAM_TOSERVER : STREAM_TOCLIENT));
 	}
 
+	SCMutexUnlock(&map->mutex);
+
 end:
-	SCMutexUnlock(&g_superflow_mutex);
+	return;
+	//SCMutexUnlock(&g_superflow_mutex);
 }
 
 /**
  * Touches a superflow in the hash.
  * I.e. moving the superflow to the end of the linked list.
  */
-void SuperflowTouch(Superflow* sflow) {
-	superflow_hash_touch(g_superflow_hashtable, sflow);
+void SuperflowTouch(SuperflowHashMap *map, Superflow* sflow) {
+	superflow_hash_touch(map->htbl, sflow);
 }
 
 /**
@@ -93,7 +112,7 @@ void SuperflowTouch(Superflow* sflow) {
  * There is a possbility, that no flow is attached afterwards, because there is no matching flow and
  * all superflows have a refcount > 0.
  */
-void SuperflowAttachToFlow(Packet* packet) {
+void SuperflowAttachToFlow(SuperflowHashMap *map, Packet* packet) {
 	Flow * flow = packet->flow;
 	union SuperflowKey_ key;
 
@@ -105,7 +124,7 @@ void SuperflowAttachToFlow(Packet* packet) {
 	Superflow* sflow = NULL;
 
 	// Look for a matching superflow in the hashmap
-	sflow = superflow_hash_find_by_key(g_superflow_hashtable, &key);
+	sflow = superflow_hash_find_by_key(map->htbl, &key);
 
 	if (sflow == NULL) {
 		// Take the superflow from the heap (the not used superflows)
@@ -113,7 +132,7 @@ void SuperflowAttachToFlow(Packet* packet) {
 
 		if (sflow == NULL) {
 			// Take the oldest superflow from the hashmap
-			sflow = SuperflowFromHash();
+			sflow = SuperflowFromHash(map);
 		}
 
 		if (sflow == NULL) {
@@ -128,10 +147,10 @@ void SuperflowAttachToFlow(Packet* packet) {
 		memset(sflow, 0, sizeof(Superflow));
 		sflow->addrs = key;
 		// Add it to the hashtable
-		superflow_hash_add(g_superflow_hashtable, sflow);
+		superflow_hash_add(map->htbl, sflow);
 	} else {
 		// Touch the superflow if a matching superflow was found in the hashmap
-		SuperflowTouch(sflow);
+		SuperflowTouch(map, sflow);
 	}
 
 	// The superflow is now in use so increment the refcount
@@ -196,7 +215,11 @@ void SuperflowInit(char silent) {
 		exit(-1);
 	}
 	// Initialize the superflow hashtable
-	g_superflow_hashtable = superflow_hash_new(g_superflows);
+	//g_superflow_hashtable = superflow_hash_new(g_superflows);
+	for (uint32_t i = 0; i < SUPERFLOW_NUM_HASHMAPS; ++i) {
+		g_superflow_maps[i].htbl = superflow_hash_new(g_superflows);
+		SCMutexInit(&g_superflow_maps[i].mutex, NULL);
+	}
 
 	// Create the performance counters
 	memset(&g_perfContext, 0, sizeof(SCPerfContext));
@@ -223,11 +246,19 @@ void SuperflowFree() {
 	Superflow *sflow = NULL;
 
 	// Free the hashmap
-	while ((sflow = superflow_hash_get_head(g_superflow_hashtable))) {
+	/*while ((sflow = superflow_hash_get_head(g_superflow_hashtable))) {
 		FLOWLOCK_DESTROY(sflow);
 		superflow_hash_del(g_superflow_hashtable, sflow);
+	}*/
+	//superflow_hash_free(g_superflow_hashtable);
+	for (uint32_t i = 0; i < SUPERFLOW_NUM_HASHMAPS; i++) {
+		while ((sflow = superflow_hash_get_head(g_superflow_maps[i].htbl))) {
+			FLOWLOCK_DESTROY(sflow);
+			superflow_hash_del(g_superflow_maps[i].htbl, sflow);
+		}
+		superflow_hash_free(g_superflow_maps[i].htbl);
+		g_superflow_maps[i].htbl = NULL;
 	}
-	superflow_hash_free(g_superflow_hashtable);
 
 	// Free the superflows
 	free(g_superflows);
@@ -238,7 +269,7 @@ void SuperflowFree() {
 	SCPerfReleasePerfCounterS(g_perfContext.head);
 
 	g_superflows = NULL;
-	g_superflow_hashtable = NULL;
+	//g_superflow_hashtable = NULL;
 	g_superflow_used_count = 0;
 
 	g_superflow_memory = 0;
@@ -302,6 +333,9 @@ void SuperflowRecycleFlow(Flow* flow) {
  */
 Superflow* SuperflowFromHeap() {
 	if (g_superflow_used_count == g_superflow_count) return NULL;
+	SCMutexLock(&g_superflow_mutex);
+	// Double check is neccessary
+	if (g_superflow_used_count == g_superflow_count) return NULL;
 
 	SCPerfCounterIncr(g_perfId_superflow_count, g_perfCounterArray);
 	SCPerfUpdateCounterArray(g_perfCounterArray, &g_perfContext, 0);
@@ -309,6 +343,8 @@ Superflow* SuperflowFromHeap() {
 	Superflow *new_sflow = &g_superflows[g_superflow_used_count++];
 
 	FLOWLOCK_INIT(new_sflow);
+
+	SCMutexUnlock(&g_superflow_mutex);
 
 	return new_sflow;
 }
@@ -318,21 +354,21 @@ Superflow* SuperflowFromHeap() {
  * and removes it from the hashmap.
  * Return NULL, if all superflows have a refcount > 0
  */
-Superflow* SuperflowFromHash() {
-	Superflow* sflow = superflow_hash_get_head(g_superflow_hashtable);
+Superflow* SuperflowFromHash(SuperflowHashMap *map) {
+	Superflow* sflow = superflow_hash_get_head(map->htbl);
 	if (!sflow) return NULL;
 
 	uint64_t count = 0;
 
 	while (sflow != NULL && SC_ATOMIC_GET(sflow->refCount) > 0) {
-		sflow = superflow_hash_next(g_superflow_hashtable, sflow);
+		sflow = superflow_hash_next(map->htbl, sflow);
 		count++;
 	}
 
 	SCPerfCounterSetUI64(g_perfId_superflow_search, g_perfCounterArray, count);
 
 	if (sflow) {
-		superflow_hash_del(g_superflow_hashtable, sflow);
+		superflow_hash_del(map->htbl, sflow);
 	}
 
 	return sflow;
@@ -580,6 +616,8 @@ int SuperflowTest04() {
 		goto error;
 	}
 
+	struct UT_hash_table_ *g_superflow_hashtable = SuperflowGetMap(ip4hdr.ip4_hdrun1.ip4_un1.ip_src.s_addr, ip4hdr.ip4_hdrun1.ip4_un1.ip_dst.s_addr)->htbl;
+
 	Superflow *sflow = superflow_hash_get_head(g_superflow_hashtable);
 	if (SC_ATOMIC_GET(sflow->refCount) != 1) {
 		printf("Refcount of first superflow is not 1, %u\n", SC_ATOMIC_GET(sflow->refCount));
@@ -653,7 +691,8 @@ int SuperflowTest05() {
 		emmitPacket(i);
 	}
 
-	if (superflow_hash_count(g_superflow_hashtable) != g_superflow_count) {
+
+	/*if (superflow_hash_count(g_superflow_hashtable) != g_superflow_count) {
 		printf("Superflow count is not SUPERFLOW_COUNT\n");
 		goto error;
 	}
@@ -701,7 +740,7 @@ int SuperflowTest05() {
 	if (sflow != NULL) {
 		printf("Sflow should have been NULL\n");
 		goto error;
-	}
+	}*/
 
 	int r = 0;
 	goto end;
