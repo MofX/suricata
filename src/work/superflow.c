@@ -133,12 +133,18 @@ void SuperflowAttachToFlow(SuperflowHashMap *map, Packet* packet) {
 		// Take the superflow from the heap (the not used superflows)
 		sflow = SuperflowFromHeap();
 
+		if (sflow) {
+			SCPerfCounterIncr(map->perfId_count, g_perfCounterArray);
+			SCPerfUpdateCounterArray(g_perfCounterArray, &g_perfContext, 0);
+		}
+
 		if (sflow == NULL) {
 			// Take the oldest superflow from the hashmap
 			sflow = SuperflowFromHash(map);
-		} else {
-			SCPerfCounterIncr(map->perfId_count, g_perfCounterArray);
-			SCPerfUpdateCounterArray(g_perfCounterArray, &g_perfContext, 0);
+			if (sflow) {
+				SCPerfCounterIncr(g_perfId_superflow_reuse_count, g_perfCounterArray);
+				SCPerfUpdateCounterArray(g_perfCounterArray, &g_perfContext, 0);
+			}
 		}
 
 		if (sflow == NULL) {
@@ -147,9 +153,6 @@ void SuperflowAttachToFlow(SuperflowHashMap *map, Packet* packet) {
 			SCPerfUpdateCounterArray(g_perfCounterArray, &g_perfContext, 0);
 			//printf("Warning: No free Superflow. Can't associate superflow to flow. : %u, %x\n", g_perfId_superflow_drop, g_perfCounterArray);
 			return;
-		} else {
-			SCPerfCounterIncr(g_perfId_superflow_reuse_count, g_perfCounterArray);
-			SCPerfUpdateCounterArray(g_perfCounterArray, &g_perfContext, 0);
 		}
 
 		// Reset superflow
