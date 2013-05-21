@@ -51,9 +51,9 @@ SCPerfContext g_perfContext;
 SCPerfCounterArray *g_perfCounterArray;
 uint32_t g_perfId_superflow_drop = 0, g_perfId_superflow_count = 0, g_perfId_superflow_search = 0;
 
-uint32_t g_superflow_memory;
+uint64_t g_superflow_memory;
 uint32_t g_superflow_count;
-uint32_t s_superflow_memory_real;
+uint64_t s_superflow_memory_real;
 
 uint32_t g_superflow_message_timeout;
 uint32_t g_superflow_message_max_length;
@@ -189,10 +189,15 @@ void SuperflowInit(char silent) {
 	ConfNode *node = ConfGetRootNode();
 	node = ConfNodeLookupChild(node, "superflow");
 	if (node) {
-		intmax_t i = g_superflow_memory;
-		ConfGetChildValueInt(node, "memory", &i);
-		g_superflow_memory = i;
-		i = g_superflow_message_timeout;
+		char * buffer;
+		ConfGetChildValue(node, "memory", &buffer);
+		printf("memory: %s\n", buffer);
+		g_superflow_memory = strtoull(buffer, 0, 10);
+
+		//intmax_t i = g_superflow_memory;
+		//ConfGetChildValueInt(node, "memory", &i);
+		//g_superflow_memory = i;
+		intmax_t i = g_superflow_message_timeout;
 		ConfGetChildValueInt(node, "message-timeout", &i);
 		g_superflow_message_timeout = i;
 		i = g_superflow_message_max_length;
@@ -206,7 +211,7 @@ void SuperflowInit(char silent) {
 
 
 	if (!silent) {
-		printf("Allocating %u bytes of memory for %u superflows\n", s_superflow_memory_real, g_superflow_count);
+		printf("Allocating %llu bytes of memory for %u superflows\n", s_superflow_memory_real, g_superflow_count);
 	}
 	// Allocate the superflows
 	g_superflows = malloc(s_superflow_memory_real);

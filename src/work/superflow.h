@@ -33,9 +33,9 @@ extern uint32_t g_superflow_message_max_length;
 // The number of reserved superflows
 extern uint32_t g_superflow_count;
 // The memory used for reserved superflows
-extern uint32_t s_superflow_memory_real;
+extern uint64_t s_superflow_memory_real;
 // The maximum memory allowed for reserved superflows
-extern uint32_t g_superflow_memory;
+extern uint64_t g_superflow_memory;
 
 extern SCMutex g_superflow_mutex;
 
