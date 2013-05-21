@@ -244,7 +244,7 @@ void SuperflowInit(char silent) {
 
 		char name[1024];
 		char desc[1024];
-		sprintf(name, "superflow.entry_hash%u", i);
+		sprintf(name, "superflow.hash_map%u_count", i);
 		sprintf(desc, "Number of superflows in hashmap %u", i);
 		g_superflow_maps[i].perfId_count = SCPerfRegisterCounter(name, "Superflow", SC_PERF_TYPE_UINT64, desc, &g_perfContext);
 	}
