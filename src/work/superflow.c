@@ -35,6 +35,7 @@
 typedef struct SuperflowHashMap_ {
 	struct UT_hash_table_ *htbl;
 	SCMutex mutex;
+	uint32_t perfId_count;
 } SuperflowHashMap;
 
 SuperflowHashMap g_superflow_maps[SUPERFLOW_NUM_HASHMAPS];
@@ -133,6 +134,9 @@ void SuperflowAttachToFlow(SuperflowHashMap *map, Packet* packet) {
 		if (sflow == NULL) {
 			// Take the oldest superflow from the hashmap
 			sflow = SuperflowFromHash(map);
+		} else {
+			SCPerfCounterIncr(map->perfId_count, g_perfCounterArray);
+			SCPerfUpdateCounterArray(g_perfCounterArray, &g_perfContext, 0);
 		}
 
 		if (sflow == NULL) {
@@ -219,12 +223,6 @@ void SuperflowInit(char silent) {
 		printf("Allocating superflows failed\n");
 		exit(-1);
 	}
-	// Initialize the superflow hashtable
-	//g_superflow_hashtable = superflow_hash_new(g_superflows);
-	for (uint32_t i = 0; i < SUPERFLOW_NUM_HASHMAPS; ++i) {
-		g_superflow_maps[i].htbl = superflow_hash_new(g_superflows);
-		SCMutexInit(&g_superflow_maps[i].mutex, NULL);
-	}
 
 	// Create the performance counters
 	memset(&g_perfContext, 0, sizeof(SCPerfContext));
@@ -236,6 +234,21 @@ void SuperflowInit(char silent) {
 	SCPerfCounterDisplay(g_perfId_superflow_drop, &g_perfContext, 1);
 	SCPerfCounterDisplay(g_perfId_superflow_count, &g_perfContext, 1);
 	SCPerfCounterDisplay(g_perfId_superflow_search, &g_perfContext, 1);
+
+
+	// Initialize the superflow hashtable
+	//g_superflow_hashtable = superflow_hash_new(g_superflows);
+	for (uint32_t i = 0; i < SUPERFLOW_NUM_HASHMAPS; ++i) {
+		g_superflow_maps[i].htbl = superflow_hash_new(g_superflows);
+		SCMutexInit(&g_superflow_maps[i].mutex, NULL);
+
+		char name[1024];
+		char desc[1024];
+		sprintf(name, "superflow.entry_hash%u", i);
+		sprintf(desc, "Number of superflows in hashmap %u", i);
+		g_superflow_maps[i].perfId_count = SCPerfRegisterCounter(name, "Superflow", SC_PERF_TYPE_UINT64, desc, &g_perfContext);
+	}
+
 
 	SCPerfAddToClubbedTMTable("Superflow", &g_perfContext);
 	g_perfCounterArray = SCPerfGetAllCountersArray(&g_perfContext);
