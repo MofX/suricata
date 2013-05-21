@@ -51,6 +51,8 @@ void SuperflowTouch(SuperflowHashMap *map, Superflow* sflow);
 SCPerfContext g_perfContext;
 SCPerfCounterArray *g_perfCounterArray;
 uint32_t g_perfId_superflow_drop = 0, g_perfId_superflow_count = 0, g_perfId_superflow_reuse_count = 0;
+uint32_t g_perfId_superflow_use_count = 0;
+uint32_t g_perfId_superflow_free_count = 0;
 
 uint64_t g_superflow_memory;
 uint32_t g_superflow_count;
@@ -162,7 +164,10 @@ void SuperflowAttachToFlow(SuperflowHashMap *map, Packet* packet) {
 
 	// The superflow is now in use so increment the refcount
 	SC_ATOMIC_ADD(sflow->refCount, 1);
-	//++sflow->refCount;
+	if (SC_ATOMIC_GET(sflow->refCount) == 1) {
+		SCPerfCounterIncr(g_perfId_superflow_use_count, g_perfCounterArray);
+		SCPerfUpdateCounterArray(g_perfCounterArray, &g_perfContext, 0);
+	}
 
 	// Assign the superflow to the superflow_state struct
 	flow->superflow_state.superflow = sflow;
@@ -232,10 +237,14 @@ void SuperflowInit(char silent) {
 
 	g_perfId_superflow_drop = SCPerfRegisterCounter("superflow.droped_sflows", "Superflow", SC_PERF_TYPE_UINT64, "Number of dropped superflows", &g_perfContext);
 	g_perfId_superflow_count = SCPerfRegisterCounter("superflow.num_sflows", "Superflow", SC_PERF_TYPE_UINT64, "Number of superflows", &g_perfContext);
-	g_perfId_superflow_reuse_count = SCPerfRegisterAvgCounter("superflow.reuse_count", "Superflow", SC_PERF_TYPE_UINT64, "The number of reused superflows", &g_perfContext);
+	g_perfId_superflow_reuse_count = SCPerfRegisterCounter("superflow.reuse_count", "Superflow", SC_PERF_TYPE_UINT64, "The number of reused superflows", &g_perfContext);
+	g_perfId_superflow_use_count = SCPerfRegisterCounter("superflow.use_count", "Superflow", SC_PERF_TYPE_UINT64, "Number of acquired superflows", &g_perfContext);
+	g_perfId_superflow_free_count = SCPerfRegisterCounter("superflow.free_count", "Superflow", SC_PERF_TYPE_UINT64, "Number of freed superflows", &g_perfContext);
 
 	SCPerfCounterDisplay(g_perfId_superflow_drop, &g_perfContext, 1);
 	SCPerfCounterDisplay(g_perfId_superflow_count, &g_perfContext, 1);
+	SCPerfCounterDisplay(g_perfId_superflow_use_count, &g_perfContext, 1);
+	SCPerfCounterDisplay(g_perfId_superflow_free_count, &g_perfContext, 1);
 	SCPerfCounterDisplay(g_perfId_superflow_reuse_count, &g_perfContext, 1);
 
 
@@ -333,7 +342,12 @@ void SuperflowFreeFlow(Flow* flow) {
 
 	if (flow->superflow_state.superflow) {
 		SC_ATOMIC_SUB(flow->superflow_state.superflow->refCount, 1);
-		//--flow->superflow_state.superflow->refCount;
+
+		if (SC_ATOMIC_GET(flow->superflow_state.superflow->refCount) == 0) {
+			SCPerfCounterIncr(g_perfId_superflow_free_count, g_perfCounterArray);
+			SCPerfUpdateCounterArray(g_perfCounterArray, &g_perfContext, 0);
+		}
+
 	}
 }
 
