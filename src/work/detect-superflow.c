@@ -253,14 +253,19 @@ int DetectSuperflowMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
 	Superflow *sflow = p->flow->superflow_state.superflow;
 
 	FLOWLOCK_RDLOCK(sflow);
+	// It is probably possible to unlock the mutex now. That way it just acts as a memory barrier
 
 	//printf("Checking %d msgs\n", sd->count);
+
+	// There may be more messages in the Superflow than defined in the rule.
+	if (sflow->messageCount < sd->count) goto error;
 
 	for (int i = 0; i < sd->count; ++i) {
 		DetectSuperflowDataMsg *msg = &sd->msgs[i];
 		SuperflowMessage *sflow_msg = &sflow->msgs[i];
 
-		if (!(sflow->messageCount > i && (sflow_msg->flags & SUPERFLOW_MESSAGE_FLAG_INUSE))) goto error;
+		// The last message is possibly not finished yet
+		if (unlikely(!(sflow_msg->flags & SUPERFLOW_MESSAGE_FLAG_INUSE))) goto error;
 
 		/*printf("Msg %d: %d / %0.2f got(valid: %d) %d / %f\n",
 				i, msg->length, msg->entropy,
