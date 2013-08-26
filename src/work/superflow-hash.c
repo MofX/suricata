@@ -435,6 +435,14 @@ void superflow_hash_del(UT_hash_table * tbl, Superflow* value) {
 	tbl->num_items--;
 }
 
+
+void superflow_hash_clear(UT_hash_table *tbl) {
+	Superflow *sflow;
+	while ((sflow = superflow_hash_get_head(tbl))) {
+		superflow_hash_del(tbl, sflow);
+	}
+}
+
 /**
  * Returns the next element in list order from the hashmap
  */
@@ -697,6 +705,43 @@ end:
 	superflow_hash_free(tbl);
 	return r;
 }
+
+/**
+ * Test key with different server ports
+ */
+int SuperflowHashTest06() {
+	UT_hash_table *tbl;
+	Superflow sflow;
+
+	tbl = superflow_hash_new(&sflow);
+
+	memset(&sflow.addrs, 0, sizeof(sflow.addrs));
+
+	sflow.addrs.clnt = 0x12345678;
+	sflow.addrs.srvr = 0x87654321;
+	sflow.addrs.sport = 80;
+	sflow.addrs.type = SUPERFLOW_FLAG_TCP;
+
+	superflow_hash_add(tbl, &sflow);
+
+	sflow.addrs.sport = 12;
+
+	Superflow * s = superflow_hash_find(tbl, &sflow);
+
+	if (s) {
+		printf("Different server port returns same sflow\n");
+		goto error;
+	}
+
+	int r = 0;
+	goto end;
+error:
+	r = -1;
+end:
+	superflow_hash_clear(tbl);
+	superflow_hash_free(tbl);
+	return r;
+}
 #endif
 
 void SuperflowHashRegisterTests() {
@@ -706,5 +751,6 @@ void SuperflowHashRegisterTests() {
 	UtRegisterTest("SuperflowHashTest3", SuperflowHashTest03, 0);
 	UtRegisterTest("SuperflowHashTest4", SuperflowHashTest04, 0);
 	UtRegisterTest("SuperflowHashTest5", SuperflowHashTest05, 0);
+	UtRegisterTest("SuperflowHashTest6", SuperflowHashTest06, 0);
 #endif
 }

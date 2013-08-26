@@ -56,9 +56,10 @@ typedef union SuperflowKey_ {
 	struct {
 		uint32_t srvr;
 		uint32_t clnt;
-		uint8_t type;
+		uint16_t sport;
+		uint16_t type;
 	};
-	uint8_t key[5];
+	uint8_t key[12];
 } SuperflowKey;
 
 /**

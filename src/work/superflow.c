@@ -122,7 +122,8 @@ void SuperflowAttachToFlow(SuperflowHashMap *map, Packet* packet) {
 	// The key is build from the source and destination address
 	key.srvr = flow->dst.address.address_un_data32[0];
 	key.clnt = flow->src.address.address_un_data32[0];
-	key.type = PKT_IS_TCP(packet) ? SUPERFLOW_FLAG_UDP : SUPERFLOW_FLAG_TCP;
+	key.sport = flow->dp;
+	key.type = PKT_IS_TCP(packet) ? SUPERFLOW_FLAG_TCP : SUPERFLOW_FLAG_UDP;
 
 	Superflow* sflow = NULL;
 
@@ -190,6 +191,10 @@ void SuperflowInit(char silent) {
 #ifdef SUPERFLOW_DEACTIVATE
 	return;
 #endif
+
+	/*printf("sizeof(Superflow): %u\n", sizeof(Superflow));
+	printf("sizeof(SuperflowKey): %u\n", sizeof(SuperflowKey));
+	exit(-1);*/
 
 	if (g_superflows) {
 		printf("Superflows is not NULL, SuperflowInit called twice?\n");
@@ -494,6 +499,7 @@ int SuperflowTest02() {
 
 	p.src.address.address_un_data32[0] = 0x12345678;
 	p.dst.address.address_un_data32[0] = 0x87654321;
+	p.dp = 80;
 	p.flow = &f;
 	f.protoctx = &ssn;
 
@@ -598,11 +604,12 @@ int SuperflowTest04() {
 	TCPHdr tcphdr;
 	p.ip4h = &ip4hdr;
 	p.tcph = &tcphdr;
+	ip4hdr.ip_proto = 6;
 
 	ip4hdr.ip4_hdrun1.ip4_un1.ip_src.s_addr = p.src.address.address_un_data32[0] = 0x12345678;
 	ip4hdr.ip4_hdrun1.ip4_un1.ip_dst.s_addr = p.dst.address.address_un_data32[0] = 0x87654321;
-	p.dp = 123;
-	p.sp = 456;
+	tcphdr.th_dport = htons(p.dp = 123);
+	tcphdr.th_sport = htons(p.sp = 789);
 
 	SuperflowInit(1);
 	AlpProtoFinalize2Thread(&dp_ctx);
@@ -622,14 +629,14 @@ int SuperflowTest04() {
 		goto error;
 	}
 
-	ip4hdr.ip4_hdrun1.ip4_un1.ip_src.s_addr = p.src.address.address_un_data32[0] = 0x87654321;
-	ip4hdr.ip4_hdrun1.ip4_un1.ip_dst.s_addr = p.dst.address.address_un_data32[0] = 0x12345678;
-	p.dp = 456;
-	p.sp = 123;
+	// different server port -> different superflow
+	ip4hdr.ip4_hdrun1.ip4_un1.ip_src.s_addr = p.src.address.address_un_data32[0] = 0x12345678;
+	ip4hdr.ip4_hdrun1.ip4_un1.ip_dst.s_addr = p.dst.address.address_un_data32[0] = 0x87654321;
+	tcphdr.th_dport = htons(p.dp = 456);
+	tcphdr.th_sport = htons(p.sp = 123);
 
 	FlowHandlePacket(&tv, &p);
 	Flow * f2 = p.flow;
-
 
 	if (f->superflow_state.superflow == f2->superflow_state.superflow) {
 		printf("Superflows identic\n");
@@ -638,14 +645,14 @@ int SuperflowTest04() {
 
 	ip4hdr.ip4_hdrun1.ip4_un1.ip_src.s_addr = p.src.address.address_un_data32[0] = 0x12345678;
 	ip4hdr.ip4_hdrun1.ip4_un1.ip_dst.s_addr = p.dst.address.address_un_data32[0] = 0x87654321;
-	p.dp = 123;
-	p.sp = 789;
+	tcphdr.th_dport = htons(p.dp = 123);
+	tcphdr.th_sport = htons(p.sp = 7891);
 
 	FlowHandlePacket(&tv, &p);
 	Flow * f3 = p.flow;
 
 	if (f->superflow_state.superflow != f3->superflow_state.superflow) {
-		printf("Superflows identic\n");
+		printf("Superflows not identic\n");
 		goto error;
 	}
 
@@ -659,7 +666,7 @@ int SuperflowTest04() {
 
 	sflow = superflow_hash_next(g_superflow_hashtable, sflow);
 	if (SC_ATOMIC_GET(sflow->refCount) != 2) {
-		printf("Refcount of second superflow is not 1\n");
+		printf("Refcount of second superflow is not 2\n");
 		goto error;
 	}
 

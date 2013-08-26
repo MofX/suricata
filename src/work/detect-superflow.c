@@ -219,6 +219,8 @@ static int DetectSuperflowSetup (DetectEngineCtx * ctx, Signature * s, char * st
 
 	ed = DetectSuperflowParse(str);
 
+	//printf("Rule \"%s\" flags:%u, count:%u\n", str, ed->flags, ed->count);
+
 	sm->type = DETECT_SUPERFLOW;
 	sm->ctx = (void*) ed;
 
@@ -264,7 +266,7 @@ int DetectSuperflowMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
 		DetectSuperflowDataMsg *msg = &sd->msgs[i];
 		SuperflowMessage *sflow_msg = &sflow->msgs[i];
 
-		// The last message is possibly not finished yet
+		// The last message may not be finished yet
 		if (unlikely(!(sflow_msg->flags & SUPERFLOW_MESSAGE_FLAG_INUSE))) goto error;
 
 		/*printf("Msg %d: %d / %0.2f got(valid: %d) %d / %f\n",
