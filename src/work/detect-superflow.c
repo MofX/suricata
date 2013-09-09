@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <math.h>
-
+#include <float.h>
 #include "suricata-common.h"
 #include "detect.h"
 #include "detect-parse.h"
@@ -18,20 +18,25 @@
 
 #include "superflow.h"
 
-#define ENTROPY_REGEX "(?:e(?P<entropy_op>[>=\\<])?(?P<entropy_value>\\d+(?:\\.\\d+)?))"
-#define LENGTH_REGEX  "(?:l(?P<length_op>[>=\\<])?(?P<length_value>\\d+))"
-#define ONE_SFLOW_REGEX "(?:" ENTROPY_REGEX "?" LENGTH_REGEX "?)*"
+#define OPERATOR_REGEX "(?:[>=\\<])"
+#define FLOAT_VALUE_REGEX "(?:\\d+(?:\\.\\d+)?)"
+#define INT_VALUE_REGEX "(?:\\d+)"
 
-#define TYPE_REGEX "(?:(?:(?P<type>[tu])\s*[:;]\s*)?)"
-#define PARSE_REGEX "^\s*" TYPE_REGEX "(?P<sflows>.+)\s*$"
-//"^\\s*(?P<entry>" ONE_SFLOW_REGEX ")+\\s*$"
+#define ENTROPY_VALUE_REGEX "(?:" OPERATOR_REGEX "?" FLOAT_VALUE_REGEX ")"
+#define LENGTH_VAUE_REGEX "(?:" OPERATOR_REGEX "?" INT_VALUE_REGEX ")"
+
+#define ENTROPY_REGEX "(?:e(?P<entropy>" ENTROPY_VALUE_REGEX "+))"
+#define LENGTH_REGEX  "(?:l(?P<length>" LENGTH_VAUE_REGEX "+))"
+#define ONE_SFLOW_REGEX "^(?:" ENTROPY_REGEX "?" LENGTH_REGEX "?)*$"
+
+#define TYPE_REGEX "(?:(?:(?P<type>[tu])\\s*[:;]\\s*)?)"
+#define PARSE_REGEX "^\\s*" TYPE_REGEX "(?P<sflows>.+)\\s*$"
 
 static pcre *parse_regex;
 static pcre_extra *parse_regex_study;
 
 static pcre *parse_single_sflow_regex;
 static pcre_extra *parse_single_sflow_regex_study;
-
 
 static int DetectSuperflowSetup (DetectEngineCtx *, Signature *, char *);
 void DetectSuperflowFree (void *);
@@ -44,10 +49,10 @@ static void DetectSuperflowRegisterTests(void);
 #define OP_LT 4
 
 typedef struct DetectSuperflowDataMsg_ {
-	int length;
-	float entropy;
-	uint16_t length_op;
-	uint16_t entropy_op;
+	unsigned int length_min;
+	unsigned int length_max;
+	float entropy_min;
+	float entropy_max;
 } DetectSuperflowDataMsg;
 
 typedef struct DetectSuperflowData_ {
@@ -107,14 +112,125 @@ static void DetectSuperflowInitData(DetectSuperflowData * sd) {
 	sd->count = 0;
 	sd->flags = 0;
 	for (int i = 0; i < SUPERFLOW_MESSAGE_COUNT; ++i) {
-		sd->msgs[i].entropy = sd->msgs[i].length = -1;
-		sd->msgs[i].entropy_op = sd->msgs[i].length_op = OP_EQ;
+		sd->msgs[i].entropy_min = sd->msgs[i].length_min = 0;
+		sd->msgs[i].entropy_max = FLT_MAX;
+		sd->msgs[i].length_max = UINT_MAX;
 	}
 }
 
+static int DetectSuperflowParseValue(const char * entropy, const char * length, DetectSuperflowDataMsg *msg) {
+	if (entropy) {
+		int operator = OP_EQ;
+		const char * ptr = entropy;
+		const char * first = entropy;
+		while (1) {
+			int last_operator = operator;
+			switch (*ptr) {
+			case '>':
+				operator = OP_GT;
+				break;
+			case '<':
+				operator = OP_LT;
+				break;
+			case '=':
+				operator = OP_EQ;
+				break;
+			case '\0':
+				break;
+			default:
+				if ((*ptr < '0' || *ptr > '9') && *ptr != '.') {
+					printf("Illegal character '%c' in value \"%s\"\n", *ptr, entropy);
+					return -1;
+				} else {
+					++ptr;
+					continue;
+				}
+				/* no break */
+			}
+			if (first < ptr) {
+				char buffer[256];
+				memset(buffer, 0, sizeof(buffer));
+				memcpy(buffer, first, ptr - first);
+				float value = atof(buffer);
+
+				if (last_operator == OP_GT || last_operator == OP_EQ) {
+					msg->entropy_min = value;
+				}
+				if (last_operator == OP_LT || last_operator == OP_EQ) {
+					msg->entropy_max = value;
+				}
+			}
+
+			if (*ptr == 0) break;
+			++ptr;
+			first = ptr;
+		}
+
+		if (msg->entropy_min > msg->entropy_max) {
+			printf("Entropy minimum is less than entropy maximum in value: %s\n", entropy);
+			return -1;
+		}
+	}
+
+
+	if (length) {
+		int operator = OP_EQ;
+		const char * ptr = length;
+		const char * first = length;
+		while (1) {
+			int last_operator = operator;
+			switch (*ptr) {
+			case '>':
+				operator = OP_GT;
+				break;
+			case '<':
+				operator = OP_LT;
+				break;
+			case '=':
+				operator = OP_EQ;
+				break;
+			case '\0':
+				break;
+			default:
+				if ((*ptr < '0' || *ptr > '9') && *ptr != '.') {
+					printf("Illegal character '%c' in value \"%s\"\n", *ptr, length);
+					return -1;
+				} else {
+					++ptr;
+					continue;
+				}
+				/* no break */
+			}
+			if (first < ptr) {
+				char buffer[256];
+				memset(buffer, 0, sizeof(buffer));
+				memcpy(buffer, first, ptr - first);
+				unsigned int value = atoi(buffer);
+
+				if (last_operator == OP_GT || last_operator == OP_EQ) {
+					msg->length_min = value;
+				}
+				if (last_operator == OP_LT || last_operator == OP_EQ) {
+					msg->length_max = value;
+				}
+			}
+
+			if (*ptr == 0) break;
+			++ptr;
+			first = ptr;
+		}
+
+		if (msg->length_min > msg->length_max) {
+			printf("Entropy minimum is less than entropy maximum in value: %s\n", length);
+			return -1;
+		}
+	}
+
+	return 0;
+};
+
 static DetectSuperflowData *DetectSuperflowParse(char * str) {
-	DetectSuperflowData *sd = NULL;
-	sd = SCMalloc(sizeof(DetectSuperflowData));
+	DetectSuperflowData *sd = SCMalloc(sizeof(DetectSuperflowData));
 	if (sd == NULL)
 		return NULL;
 
@@ -127,6 +243,11 @@ static DetectSuperflowData *DetectSuperflowParse(char * str) {
 	const char *strSflows = NULL;
 
 	ret = pcre_exec(parse_regex, parse_regex_study, str, strlen(str), 0, 0, ov, MAX_SUBSTRINGS);
+	if (ret == PCRE_ERROR_NULL) {
+		printf("Rule format is invalid : %s\n", str);
+		goto error;
+	}
+	if (ret <= 0) goto error;
 	ret2 = pcre_get_named_substring(parse_regex, str, ov, ret, "sflows", &strSflows);
 	if (ret2 <= 0) {
 		printf("Error: No rules in superflow rule.\n");
@@ -144,12 +265,12 @@ static DetectSuperflowData *DetectSuperflowParse(char * str) {
 		sd->flags |= DETECT_SUPERFLOW_FLAG_TCP;
 	}
 
-	char *ch = strSflows;
-	char *strend = ch + strlen(ch);
+	const char *ch = strSflows;
+	const char *strend = ch + strlen(ch);
 	int i = 0;
 	while (ch && ch < strend) {
 		if (i >= SUPERFLOW_MESSAGE_COUNT) {
-			printf("Error: Too much entries in superflow rule.\n");
+			printf("Error: Too much entries in superflow rule \"%s\".\n", str);
 			goto error;
 		}
 		++sd->count;
@@ -163,36 +284,17 @@ static DetectSuperflowData *DetectSuperflowParse(char * str) {
 		if (!ret) {
 			goto error;
 		}
+		const char *entropy = 0;
+		const char *length = 0;
+		ret2 = pcre_get_named_substring(parse_single_sflow_regex, ch, ov, ret, "entropy", &entropy);
+		ret2 = pcre_get_named_substring(parse_single_sflow_regex, ch, ov, ret, "length", &length);
 
-		ret2 = pcre_get_named_substring(parse_single_sflow_regex, ch, ov, ret, "entropy_value", &buffer);
-		if (ret2 > 0) {
-			sd->msgs[i].entropy = atof(buffer);
-			pcre_free_substring(buffer);
-		}
-		ret2 = pcre_get_named_substring(parse_single_sflow_regex, ch, ov, ret, "entropy_op", &buffer);
-		if (ret2 > 0) {
-			if (strcmp(buffer, ">") == 0) {
-				sd->msgs[i].entropy_op = OP_GT;
-			} else if (strcmp(buffer, "<") == 0) {
-				sd->msgs[i].entropy_op = OP_LT;
-			}
-			pcre_free_substring(buffer);
-		}
-
-		buffer = NULL;
-		ret2 = pcre_get_named_substring(parse_single_sflow_regex, ch, ov, ret, "length_value", &buffer);
-		if (ret2 > 0) {
-			sd->msgs[i].length = atof(buffer);
-			pcre_free_substring(buffer);
-		}
-		ret2 = pcre_get_named_substring(parse_single_sflow_regex, ch, ov, ret, "length_op", &buffer);
-		if (ret2 > 0) {
-			if (strcmp(buffer, ">") == 0) {
-				sd->msgs[i].length_op = OP_GT;
-			} else if (strcmp(buffer, "<") == 0) {
-				sd->msgs[i].length_op = OP_LT;
-			}
-			pcre_free_substring(buffer);
+		ret2 = DetectSuperflowParseValue(entropy, length, &sd->msgs[i]);
+		pcre_free_substring(entropy);
+		pcre_free_substring(length);
+		if (ret2 == -1) {
+			printf("Error parsing rule: %s", str);
+			goto error;
 		}
 
 		ch = chnext;
@@ -204,7 +306,7 @@ error:
 	free(sd);
 	sd = NULL;
 end:
-	pcre_free(strSflows);
+	pcre_free_substring(strSflows);
 	return sd;
 }
 
@@ -262,46 +364,24 @@ int DetectSuperflowMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
 	// There may be more messages in the Superflow than defined in the rule.
 	if (sflow->messageCount < sd->count) goto error;
 
-	for (int i = 0; i < sd->count; ++i) {
+	for (unsigned i = 0; i < sd->count; ++i) {
 		DetectSuperflowDataMsg *msg = &sd->msgs[i];
 		SuperflowMessage *sflow_msg = &sflow->msgs[i];
 
 		// The last message may not be finished yet
 		if (unlikely(!(sflow_msg->flags & SUPERFLOW_MESSAGE_FLAG_INUSE))) goto error;
 
-		/*printf("Msg %d: %d / %0.2f got(valid: %d) %d / %f\n",
-				i, msg->length, msg->entropy,
+		printf("Msg %d: %d / %0.2f got(valid: %d) %d / %f\n",
+				i, msg->length_min, msg->entropy_min,
 				sflow->messageCount > i && (sflow_msg->flags & SUPERFLOW_MESSAGE_FLAG_INUSE),
-				sflow_msg->length, SuperflowGetEntropy(sflow_msg));*/
+				sflow_msg->length, SuperflowGetEntropy(sflow_msg));
 
-		if (msg->entropy >= 0) {
-			float entropy = SuperflowGetEntropy(sflow_msg);
-			switch (msg->entropy_op) {
-			case OP_EQ:
-				if (msg->entropy != entropy) goto error;
-				break;
-			case OP_LT:
-				if (msg->entropy < entropy) goto error;
-				break;
-			case OP_GT:
-				if (msg->entropy > entropy) goto error;
-				break;
-			}
-		}
+		float entropy = SuperflowGetEntropy(sflow_msg);
+		if (entropy > msg->entropy_max) goto error;
+		if (entropy < msg->entropy_min) goto error;
 
-		if (msg->length >= 0) {
-			switch (msg->length_op) {
-			case OP_EQ:
-				if (msg->length != sflow_msg->length) goto error;
-				break;
-			case OP_LT:
-				if (msg->length < sflow_msg->length) goto error;
-				break;
-			case OP_GT:
-				if (msg->length > sflow_msg->length) goto error;
-				break;
-			}
-		}
+		if (sflow_msg->length > msg->length_max) goto error;
+		if (sflow_msg->length < msg->length_min) goto error;
 	}
 
 	int res = 1;
@@ -324,11 +404,11 @@ static int ParseTest1() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
-	exp.msgs[0].entropy = 0.1;
-	exp.msgs[0].entropy_op = OP_GT;
 	exp.count = 1;
+	exp.msgs[0].entropy_min = 1;
+	exp.msgs[0].entropy_max = 2;
 	exp.flags = DETECT_SUPERFLOW_FLAG_TCP;
-	sd = DetectSuperflowParse("e>0.1");
+	sd = DetectSuperflowParse("e>1<2");
 
 	if (memcmp(&exp, sd, sizeof(DetectSuperflowData))) {
 		goto error;
@@ -344,8 +424,7 @@ static int ParseTest2() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
-	exp.msgs[0].length = 12;
-	exp.msgs[0].length_op = OP_GT;
+	exp.msgs[0].length_min = 12;
 	exp.count = 1;
 	exp.flags = DETECT_SUPERFLOW_FLAG_TCP;
 	sd = DetectSuperflowParse("l>12");
@@ -364,8 +443,8 @@ static int ParseTest3() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
-	exp.msgs[0].entropy = 0.1;
-	exp.msgs[0].length = 12;
+	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1;
+	exp.msgs[0].length_min = exp.msgs[0].length_max = 12;
 	exp.count = 1;
 	exp.flags = DETECT_SUPERFLOW_FLAG_TCP;
 	sd = DetectSuperflowParse("l12e0.1");
@@ -384,12 +463,11 @@ static int ParseTest4() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
-	exp.msgs[0].entropy = 0.1;
-	exp.msgs[0].length = 12;
-	exp.msgs[1].entropy = 0.3;
-	exp.msgs[2].length = 345;
-	exp.msgs[2].length_op = OP_LT;
-	exp.msgs[4].entropy = 0.2;
+	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1;
+	exp.msgs[0].length_min = exp.msgs[0].length_max = 12;
+	exp.msgs[1].entropy_min = exp.msgs[1].entropy_max = 0.3;
+	exp.msgs[2].length_max = 345;
+	exp.msgs[4].entropy_min = exp.msgs[4].entropy_max = 0.2;
 	exp.count = 5;
 	exp.flags = DETECT_SUPERFLOW_FLAG_TCP;
 	const char* str = "l12e0.1,e0.3,l<345,,e0.2";
@@ -411,10 +489,10 @@ static int ParseTest5() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
-	exp.msgs[0].entropy = 0.1;
-	exp.msgs[0].length = 12;
-	exp.msgs[1].length = 25;
-	exp.msgs[1].entropy = 0.3;
+	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1;
+	exp.msgs[0].length_min = exp.msgs[0].length_max = 12;
+	exp.msgs[1].length_min = exp.msgs[1].length_max = 25;
+	exp.msgs[1].entropy_min = exp.msgs[1].entropy_max = 0.3;
 	exp.count = 2;
 	exp.flags = DETECT_SUPERFLOW_FLAG_TCP;
 	const char* str = "l12e0.1,e0.3l25";
@@ -440,11 +518,11 @@ static int ParseTest6() {
 	memset(buffer, 0, 1024);
 	DetectSuperflowInitData(&exp);
 	for (int i = 0; i < SUPERFLOW_MESSAGE_COUNT; ++i) {
-		exp.msgs[i].entropy = i/100.;
-		exp.msgs[i].length = i;
+		exp.msgs[i].entropy_min = exp.msgs[i].entropy_max = i/100.;
+		exp.msgs[i].length_min = exp.msgs[i].length_max = i;
 
 		char localbuffer[100];
-		sprintf(localbuffer, "%sl%de%0.2f", i > 0 ? "," : "", exp.msgs[i].length, exp.msgs[i].entropy);
+		sprintf(localbuffer, "%sl%de%0.2f", i > 0 ? "," : "", exp.msgs[i].length_min, exp.msgs[i].entropy_min);
 
 		strcat(buffer, localbuffer);
 	}
@@ -474,10 +552,10 @@ static int ParseTest7() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
-	exp.msgs[0].entropy = 0.1;
-	exp.msgs[0].length = 12;
-	exp.msgs[1].length = 25;
-	exp.msgs[1].entropy = 0.3;
+	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1;
+	exp.msgs[0].length_min = exp.msgs[0].length_max = 12;
+	exp.msgs[1].length_min = exp.msgs[1].length_max = 25;
+	exp.msgs[1].entropy_min = exp.msgs[1].entropy_max = 0.3;
 	exp.count = 2;
 	exp.flags = DETECT_SUPERFLOW_FLAG_UDP;
 	const char* str = "u;l12e0.1,e0.3l25";
@@ -499,10 +577,10 @@ static int ParseTest8() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
-	exp.msgs[0].entropy = 0.1;
-	exp.msgs[0].length = 12;
-	exp.msgs[1].length = 25;
-	exp.msgs[1].entropy = 0.3;
+	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1;
+	exp.msgs[0].length_min = exp.msgs[0].length_max = 12;
+	exp.msgs[1].length_min = exp.msgs[1].length_max = 25;
+	exp.msgs[1].entropy_min = exp.msgs[1].entropy_max = 0.3;
 	exp.count = 2;
 	exp.flags = DETECT_SUPERFLOW_FLAG_TCP;
 	const char* str = "t;l12e0.1,e0.3l25";
@@ -593,7 +671,12 @@ int Test1() {
     ts.tv_usec = 0;
 
     char * sig = "alert tcp any any -> any any (msg:\"dummy\"; superflow:l5e<0.5,; sid:1;)";
-    de_ctx->sig_list = SigInit(de_ctx, sig);
+    char * sig2 = "alert tcp any any -> any any (msg:\"dummy\"; superflow:l6;)";
+    // Insert sig and sig2 into the engine.
+    // They will be prepended to the signatures list.
+    // result de_ctx->siglist = sig -> sig2 -> NULL
+    DetectEngineAppendSig(de_ctx, sig2);
+    DetectEngineAppendSig(de_ctx, sig);
 	if (de_ctx->sig_list == NULL) {
 		printf("Sig list is NULL\n");
 		goto error;
@@ -647,11 +730,19 @@ int Test1() {
 
     p = emitTCPPacket("", 0, TH_ACK, "54.54.65.85", "45.12.45.78", server_port, client_port, &seq_to_client, &seq_to_server, ts, &tv, &stt, &pq);
 
+    // Sig should have matched
     SigMatchSignatures(&tv_dt, de_ctx, det_ctx, p);
     if (PacketAlertCheck(p, de_ctx->sig_list->id) != 1) {
     	UTHFreePacket(p);
 		goto error;
 	}
+
+    // Sig2 shouldn't have matched
+    if (PacketAlertCheck(p, de_ctx->sig_list->next->id) == 1) {
+		UTHFreePacket(p);
+		goto error;
+	}
+
     UTHFreePacket(p);
 
 	int r = 1;
@@ -717,7 +808,7 @@ int Test2() {
     ts.tv_usec = 0;
 
     char * sig = "alert udp any any -> any any (msg:\"dummy\"; superflow:u:l5e<0.5,; sid:1;)";
-    de_ctx->sig_list = SigInit(de_ctx, sig);
+    DetectEngineAppendSig(de_ctx, sig);
 	if (de_ctx->sig_list == NULL) {
 		printf("Sig list is NULL\n");
 		goto error;
