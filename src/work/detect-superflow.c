@@ -233,8 +233,10 @@ static int DetectSuperflowParseValue(const char * entropy, const char * length, 
 
 static DetectSuperflowData *DetectSuperflowParse(char * str) {
 	DetectSuperflowData *sd = SCMalloc(sizeof(DetectSuperflowData));
-	if (sd == NULL)
+	if (sd == NULL) {
+		printf("Error allocating superflow data\n");
 		return NULL;
+	}
 
 	DetectSuperflowInitData(sd);
 
@@ -246,10 +248,13 @@ static DetectSuperflowData *DetectSuperflowParse(char * str) {
 
 	ret = pcre_exec(parse_regex, parse_regex_study, str, strlen(str), 0, 0, ov, MAX_SUBSTRINGS);
 	if (ret == PCRE_ERROR_NULL) {
-		printf("Rule format is invalid : %s\n", str);
+		printf("Rule format is invalid: %s\n", str);
 		goto error;
 	}
-	if (ret <= 0) goto error;
+	if (ret <= 0) {
+		printf("Empty rule: %s\n", str);
+		goto error;
+	}
 	ret2 = pcre_get_named_substring(parse_regex, str, ov, ret, "sflows", &strSflows);
 	if (ret2 <= 0) {
 		printf("Error: No rules in superflow rule.\n");
@@ -284,6 +289,7 @@ static DetectSuperflowData *DetectSuperflowParse(char * str) {
 		}
 		ret = pcre_exec(parse_single_sflow_regex, parse_single_sflow_regex_study, ch, strlen(ch), 0, 0, ov, MAX_SUBSTRINGS);
 		if (!ret) {
+			printf("Error parsing rule: %s", str);
 			goto error;
 		}
 		const char *entropy = 0;
@@ -323,6 +329,11 @@ static int DetectSuperflowSetup (DetectEngineCtx * ctx, Signature * s, char * st
 
 	ed = DetectSuperflowParse(str);
 
+	if (!ed) {
+		printf("Rule parsing failed: %s\n", str);
+		goto error;
+	}
+
 	//printf("Rule \"%s\" flags:%u, count:%u\n", str, ed->flags, ed->count);
 
 	sm->type = DETECT_SUPERFLOW;
@@ -334,10 +345,10 @@ static int DetectSuperflowSetup (DetectEngineCtx * ctx, Signature * s, char * st
 	return 0;
 
 	error:
-	    if (sm != NULL) SCFree(sm);
-	    if (ed != NULL) SCFree(ed);
+	if (sm != NULL) SCFree(sm);
+	if (ed != NULL) SCFree(ed);
 
-	    return -1;
+	return -1;
 }
 
 
