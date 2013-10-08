@@ -49,10 +49,10 @@ static void DetectSuperflowRegisterTests(void);
 #define OP_LT 4
 
 typedef struct DetectSuperflowDataMsg_ {
-	unsigned int length_min;
-	unsigned int length_max;
-	float entropy_min;
-	float entropy_max;
+	uint32_t length_min;
+	uint32_t length_max;
+	uint8_t entropy_min;
+	uint8_t entropy_max;
 } DetectSuperflowDataMsg;
 
 typedef struct DetectSuperflowData_ {
@@ -109,10 +109,8 @@ error:
 }
 
 static void DetectSuperflowInitData(DetectSuperflowData * sd) {
-	sd->count = 0;
-	sd->flags = 0;
+	memset(sd, 0, sizeof(DetectSuperflowData));
 	for (int i = 0; i < SUPERFLOW_MESSAGE_COUNT; ++i) {
-		sd->msgs[i].entropy_min = sd->msgs[i].length_min = 0;
 		sd->msgs[i].entropy_max = FLT_MAX;
 		sd->msgs[i].length_max = UINT_MAX;
 	}
@@ -153,11 +151,15 @@ static int DetectSuperflowParseValue(const char * entropy, const char * length, 
 				memcpy(buffer, first, ptr - first);
 				float value = atof(buffer);
 
+				if (value > 1) {
+					printf("Entropy must be less than or equal to 1: %s\n", entropy);
+				}
+
 				if (last_operator == OP_GT || last_operator == OP_EQ) {
-					msg->entropy_min = value;
+					msg->entropy_min = (uint8_t)(value * 255);
 				}
 				if (last_operator == OP_LT || last_operator == OP_EQ) {
-					msg->entropy_max = value;
+					msg->entropy_max = (uint8_t)(value * 255);
 				}
 			}
 
@@ -371,12 +373,13 @@ int DetectSuperflowMatch(ThreadVars *t, DetectEngineThreadCtx *det_ctx,
 		// The last message may not be finished yet
 		if (unlikely(!(sflow_msg->flags & SUPERFLOW_MESSAGE_FLAG_INUSE))) goto error;
 
-		printf("Msg %d: %d / %0.2f got(valid: %d) %d / %f\n",
+		/*printf("Msg %d: %d / %0.2f got(valid: %d) %d / %f\n",
 				i, msg->length_min, msg->entropy_min,
 				sflow->messageCount > i && (sflow_msg->flags & SUPERFLOW_MESSAGE_FLAG_INUSE),
-				sflow_msg->length, SuperflowGetEntropy(sflow_msg));
+				sflow_msg->length, SuperflowGetEntropy(sflow_msg));*/
 
-		float entropy = SuperflowGetEntropy(sflow_msg);
+		//float entropy = SuperflowGetEntropy(sflow_msg);
+		int entropy = sflow_msg->entropy;
 		if (entropy > msg->entropy_max) goto error;
 		if (entropy < msg->entropy_min) goto error;
 
@@ -405,10 +408,10 @@ static int ParseTest1() {
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
 	exp.count = 1;
-	exp.msgs[0].entropy_min = 1;
-	exp.msgs[0].entropy_max = 2;
+	exp.msgs[0].entropy_min = 0.1 * 255;
+	exp.msgs[0].entropy_max = 0.2 * 255;
 	exp.flags = DETECT_SUPERFLOW_FLAG_TCP;
-	sd = DetectSuperflowParse("e>1<2");
+	sd = DetectSuperflowParse("e>0.1<0.2");
 
 	if (memcmp(&exp, sd, sizeof(DetectSuperflowData))) {
 		goto error;
@@ -443,7 +446,7 @@ static int ParseTest3() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
-	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1;
+	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1 * 255;
 	exp.msgs[0].length_min = exp.msgs[0].length_max = 12;
 	exp.count = 1;
 	exp.flags = DETECT_SUPERFLOW_FLAG_TCP;
@@ -463,11 +466,11 @@ static int ParseTest4() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
-	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1;
+	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1 * 255;
 	exp.msgs[0].length_min = exp.msgs[0].length_max = 12;
-	exp.msgs[1].entropy_min = exp.msgs[1].entropy_max = 0.3;
+	exp.msgs[1].entropy_min = exp.msgs[1].entropy_max = 0.3 * 255;
 	exp.msgs[2].length_max = 345;
-	exp.msgs[4].entropy_min = exp.msgs[4].entropy_max = 0.2;
+	exp.msgs[4].entropy_min = exp.msgs[4].entropy_max = 0.2 * 255;
 	exp.count = 5;
 	exp.flags = DETECT_SUPERFLOW_FLAG_TCP;
 	const char* str = "l12e0.1,e0.3,l<345,,e0.2";
@@ -489,10 +492,10 @@ static int ParseTest5() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
-	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1;
+	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1 * 255;
 	exp.msgs[0].length_min = exp.msgs[0].length_max = 12;
 	exp.msgs[1].length_min = exp.msgs[1].length_max = 25;
-	exp.msgs[1].entropy_min = exp.msgs[1].entropy_max = 0.3;
+	exp.msgs[1].entropy_min = exp.msgs[1].entropy_max = 0.3 * 255;
 	exp.count = 2;
 	exp.flags = DETECT_SUPERFLOW_FLAG_TCP;
 	const char* str = "l12e0.1,e0.3l25";
@@ -552,10 +555,10 @@ static int ParseTest7() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
-	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1;
+	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1 * 255;
 	exp.msgs[0].length_min = exp.msgs[0].length_max = 12;
 	exp.msgs[1].length_min = exp.msgs[1].length_max = 25;
-	exp.msgs[1].entropy_min = exp.msgs[1].entropy_max = 0.3;
+	exp.msgs[1].entropy_min = exp.msgs[1].entropy_max = 0.3 * 255;
 	exp.count = 2;
 	exp.flags = DETECT_SUPERFLOW_FLAG_UDP;
 	const char* str = "u;l12e0.1,e0.3l25";
@@ -577,10 +580,10 @@ static int ParseTest8() {
 	DetectSuperflowData * sd = NULL;
 	DetectSuperflowData exp;
 	DetectSuperflowInitData(&exp);
-	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1;
+	exp.msgs[0].entropy_min = exp.msgs[0].entropy_max = 0.1 * 255;
 	exp.msgs[0].length_min = exp.msgs[0].length_max = 12;
 	exp.msgs[1].length_min = exp.msgs[1].length_max = 25;
-	exp.msgs[1].entropy_min = exp.msgs[1].entropy_max = 0.3;
+	exp.msgs[1].entropy_min = exp.msgs[1].entropy_max = 0.3 * 255;
 	exp.count = 2;
 	exp.flags = DETECT_SUPERFLOW_FLAG_TCP;
 	const char* str = "t;l12e0.1,e0.3l25";
